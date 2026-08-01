@@ -1,0 +1,14 @@
+{
+  "appId": "com.mystory.app",
+  "appName": "My Story",
+  "webDir": "dist",
+  "server": {
+    "androidScheme": "https"
+  },
+  "android": {
+    "allowMixedContent": false
+  },
+  "ios": {
+    "contentInset": "always"
+  }
+}

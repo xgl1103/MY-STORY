@@ -1,0 +1,527 @@
+{
+  "world_id": "lord_of_mysteries",
+  "outline": [
+    {
+      "chapter_number": 0,
+      "node_id": "ch0_awakening",
+      "node_type": "mainline",
+      "trigger_day": 1,
+      "content": "故事开篇。{hero_name}原本过着普通人的生活，在某次日常活动中偶然接触到非凡现象（如目睹灵体、发现奇异物品、经历无法解释的事件）。一位神秘人出现，引导{hero_name}觉醒为占卜家途径序列9的非凡者。这是{hero_name}踏入隐秘世界的第一步，需要营造出'平凡日常被打破'的震撼感和悬疑氛围。{hero_name}第一次开启灵视，看见平日里看不见的灵性世界。",
+      "prerequisites": [],
+      "branch_options": []
+    },
+    {
+      "chapter_number": 0,
+      "node_id": "ch0_first_divination",
+      "node_type": "mainline",
+      "trigger_day": 2,
+      "content": "{hero_name}尝试进行人生中第一次正式占卜。在导师（神秘人）的指点下，使用塔罗牌或星象进行占卜，获得关于自身命运的第一条模糊线索。占卜过程要体现精神力消耗和灵性感知的体验，结果要有悬念感，暗示后续剧情走向但不可点破。",
+      "prerequisites": [
+        "ch0_awakening"
+      ],
+      "branch_options": []
+    },
+    {
+      "chapter_number": 0,
+      "node_id": "ch0_path_accept",
+      "node_type": "branch",
+      "trigger_day": 3,
+      "content": "{hero_name}面临第一个抉择：是否正式接受这份非凡力量及其带来的风险。导师告知服用魔药会获得力量但也伴随失控危险。根据用户日记反映的心态（积极进取还是犹豫谨慎），AI 决定{hero_name}是主动接受还是经历一番内心挣扎后接受。无论哪条路，最终都踏上非凡者之路，但心态和动机不同。",
+      "prerequisites": [
+        "ch0_first_divination"
+      ],
+      "branch_options": [
+        {
+          "id": "ch0_accept_eager",
+          "desc": "主动积极接受力量，渴望探索未知",
+          "effect": "主角性格偏向果敢好奇，后续剧情更主动出击"
+        },
+        {
+          "id": "ch0_accept_cautious",
+          "desc": "谨慎权衡后接受，对风险保持警惕",
+          "effect": "主角性格偏向沉稳谨慎，后续剧情更重谋划"
+        }
+      ]
+    },
+    {
+      "chapter_number": 0,
+      "node_id": "ch0_first_danger",
+      "node_type": "climax",
+      "trigger_day": 4,
+      "content": "序章高潮。{hero_name}刚获得力量不久，就遭遇第一次非凡危险——可能是被一只低阶灵体盯上、卷入一场非凡者冲突的余波、或被某个势力注意到。{hero_name}必须凭借新获得的灵视和基础占卜能力化险为夷。这是对{hero_name}的第一次考验，体现'力量伴随危险'的主题。危机的解决不必完美，可以带点狼狈，凸显新手的稚嫩。",
+      "prerequisites": [
+        "ch0_path_accept"
+      ],
+      "branch_options": []
+    },
+    {
+      "chapter_number": 0,
+      "node_id": "ch0_stabilize",
+      "node_type": "resolution",
+      "trigger_day": 5,
+      "content": "序章收束。{hero_name}从第一次危机中脱身，开始消化这段经历。导师给予进一步指点，告知{hero_name}若想在这条路上走远，需要前往更大的城市、加入非凡者组织。{hero_name}整理心绪，准备踏上新的旅程。为第一章做铺垫，营造'暴风雨前的宁静'感。",
+      "prerequisites": [
+        "ch0_first_danger"
+      ],
+      "branch_options": []
+    },
+    {
+      "chapter_number": 1,
+      "node_id": "ch1_new_city",
+      "node_type": "mainline",
+      "trigger_day": 6,
+      "content": "{hero_name}来到一座雾气弥漫的大城市（可参考维多利亚时代的伦敦），开始以非凡者身份安顿下来。需要描写城市氛围：煤气灯、钟塔、浓雾、蒸汽火车。{hero_name}找到住所，初步了解当地非凡者圈子的概况。这一节点节奏放缓，着重建立故事舞台。",
+      "prerequisites": [
+        "ch0_stabilize"
+      ],
+      "branch_options": []
+    },
+    {
+      "chapter_number": 1,
+      "node_id": "ch1_mentor",
+      "node_type": "mainline",
+      "trigger_day": 9,
+      "content": "{hero_name}结识一位正式的导师或引路人（可与序章的神秘人不同，是新城市的联系人）。导师教授{hero_name}更系统的占卜技巧、灵性修炼方法和非凡者世界的常识与规矩。通过导师之口，自然地交代世界观设定（序列体系、魔药风险、势力格局）。{hero_name}的占卜能力在此阶段稳步提升。",
+      "prerequisites": [
+        "ch1_new_city"
+      ],
+      "branch_options": []
+    },
+    {
+      "chapter_number": 1,
+      "node_id": "ch1_focus_branch",
+      "node_type": "branch",
+      "trigger_day": 12,
+      "content": "导师建议{hero_name}选择一个专研方向深入。根据用户日记中反映的倾向（偏理论学习、偏实战训练、还是偏社交情报），AI 决定{hero_name}的专研方向。不同方向会影响后续获得的能力侧重和结识的人脉。",
+      "prerequisites": [
+        "ch1_mentor"
+      ],
+      "branch_options": [
+        {
+          "id": "ch1_focus_divination",
+          "desc": "专研占卜与预言，提升信息获取能力",
+          "effect": "占卜精度提升，后续更易发现隐藏线索"
+        },
+        {
+          "id": "ch1_focus_combat",
+          "desc": "专研体能与自保，提升生存能力",
+          "effect": "战斗力提升，后续危机中更从容"
+        },
+        {
+          "id": "ch1_focus_social",
+          "desc": "专研人脉与情报，提升社交能力",
+          "effect": "人脉更广，后续获得更多助力"
+        }
+      ]
+    },
+    {
+      "chapter_number": 1,
+      "node_id": "ch1_tarot_invite",
+      "node_type": "mainline",
+      "trigger_day": 15,
+      "content": "{hero_name}因在专研方向上的表现引起注意，收到一份神秘的塔罗会邀请。邀请方式带有悬疑色彩（如梦中指引、匿名信件、导师转交）。{hero_name}第一次参加塔罗会聚会——在雾之上的空间中，以塔罗牌代号与其他非凡者交流。这是{hero_name}融入非凡者社会的关键节点。塔罗会成员的代号和性格可由 AI 发挥，但要符合诡秘氛围。",
+      "prerequisites": [
+        "ch1_focus_branch"
+      ],
+      "branch_options": []
+    },
+    {
+      "chapter_number": 1,
+      "node_id": "ch1_ally_branch",
+      "node_type": "branch",
+      "trigger_day": 18,
+      "content": "在塔罗会中，{hero_name}需要选择与哪位成员建立更紧密的合作关系。根据用户日记反映的社交倾向和前序分支选择，AI 决定{hero_name}的盟友。不同盟友提供不同资源和线索，影响后续剧情。",
+      "prerequisites": [
+        "ch1_tarot_invite"
+      ],
+      "branch_options": [
+        {
+          "id": "ch1_ally_mage",
+          "desc": "与擅长魔法的成员合作",
+          "effect": "获得魔法知识与神秘学线索"
+        },
+        {
+          "id": "ch1_ally_spy",
+          "desc": "与擅长情报的成员合作",
+          "effect": "获得情报网络与势力内幕"
+        },
+        {
+          "id": "ch1_ally_warrior",
+          "desc": "与擅长战斗的成员合作",
+          "effect": "获得战斗支援与保护"
+        }
+      ]
+    },
+    {
+      "chapter_number": 1,
+      "node_id": "ch1_first_mission",
+      "node_type": "climax",
+      "trigger_day": 22,
+      "content": "第一章高潮。{hero_name}接到第一个正式委托任务（调查一起小型非凡事件，如某街区出现的灵异现象、一件丢失的非凡物品、或一个失踪的普通人）。{hero_name}需综合运用占卜能力、盟友资源和前序专研成果完成任务。任务过程中遭遇意外困难，考验{hero_name}的成长。任务不必圆满完成，可留有悬念或伏笔。",
+      "prerequisites": [
+        "ch1_ally_branch"
+      ],
+      "branch_options": []
+    },
+    {
+      "chapter_number": 1,
+      "node_id": "ch1_recognition",
+      "node_type": "resolution",
+      "trigger_day": 25,
+      "content": "第一章收束。任务结束后，{hero_name}在塔罗会中获得一定认可，站稳脚跟。导师对{hero_name}的成长表示肯定，同时暗示更大的挑战即将到来。{hero_name}回望这段时间的成长，内心更加坚定。为第二章的冲突升级埋下伏笔——可在结尾让{hero_name}听闻一些不安的传闻或察觉到异常征兆。",
+      "prerequisites": [
+        "ch1_first_mission"
+      ],
+      "branch_options": []
+    },
+    {
+      "chapter_number": 2,
+      "node_id": "ch2_rumors",
+      "node_type": "mainline",
+      "trigger_day": 27,
+      "content": "{hero_name}开始听闻一系列不安的传闻：城市中接连发生普通人神秘失踪事件，线索隐隐指向非凡者世界的暗面。{hero_name}出于占卜家的直觉或塔罗会的委托，开始关注此事。这一节点营造悬疑氛围，失踪事件的真相尚不明朗，但危机感逐渐累积。",
+      "prerequisites": [
+        "ch1_recognition"
+      ],
+      "branch_options": []
+    },
+    {
+      "chapter_number": 2,
+      "node_id": "ch2_investigate_branch",
+      "node_type": "branch",
+      "trigger_day": 30,
+      "content": "{hero_name}决定深入调查失踪事件，需要选择调查方向。根据用户日记反映的行事风格（偏暗中搜集情报、偏正面探访、还是偏占卜推演），AI 决定{hero_name}的调查路径。不同路径发现不同线索，但都指向同一个幕后势力。",
+      "prerequisites": [
+        "ch2_rumors"
+      ],
+      "branch_options": [
+        {
+          "id": "ch2_inv_intel",
+          "desc": "通过情报网络暗中搜集线索",
+          "effect": "获得幕后势力的组织结构线索"
+        },
+        {
+          "id": "ch2_inv_visit",
+          "desc": "实地探访失踪现场与相关人员",
+          "effect": "获得作案手法与动机线索"
+        },
+        {
+          "id": "ch2_inv_divine",
+          "desc": "通过占卜推演追踪失踪者下落",
+          "effect": "获得幕后势力的目的与下一步行动线索"
+        }
+      ]
+    },
+    {
+      "chapter_number": 2,
+      "node_id": "ch2_discover_enemy",
+      "node_type": "mainline",
+      "trigger_day": 35,
+      "content": "调查深入后，{hero_name}发现失踪事件背后有一个隐秘的非凡者势力在操纵。这个势力可能在进行某种禁忌仪式、收集特定非凡特性、或为某个更高阶的存在服务。{hero_name}初步摸清敌人的轮廓，但尚未掌握全貌。这一节点要让敌人显出'冰山一角'，既危险又神秘，激发{hero_name}的警惕与斗志。",
+      "prerequisites": [
+        "ch2_investigate_branch"
+      ],
+      "branch_options": []
+    },
+    {
+      "chapter_number": 2,
+      "node_id": "ch2_trap",
+      "node_type": "climax",
+      "trigger_day": 40,
+      "content": "第二章高潮。{hero_name}在追查线索时落入敌人设下的陷阱，被迫正面对抗。敌人实力高于{hero_name}（可能是序列8甚至更高的非凡者），{hero_name}陷入苦战。这一节点要体现{hero_name}在实力差距下的挣扎与智慧，不靠蛮力而靠占卜预判和临场应变周旋。战斗激烈且危机感十足，{hero_name}处于劣势。",
+      "prerequisites": [
+        "ch2_discover_enemy"
+      ],
+      "branch_options": []
+    },
+    {
+      "chapter_number": 2,
+      "node_id": "ch2_escape_branch",
+      "node_type": "branch",
+      "trigger_day": 42,
+      "content": "{hero_name}陷入绝境，需要选择脱身方式。根据用户日记反映的特质和前序分支（专研方向、盟友选择），AI 决定{hero_name}的脱身策略。不同脱身方式带来不同代价，但都让{hero_name}暂时脱离危险。",
+      "prerequisites": [
+        "ch2_trap"
+      ],
+      "branch_options": [
+        {
+          "id": "ch2_escape_ally",
+          "desc": "依靠盟友及时救援脱身",
+          "effect": "欠下盟友人情，盟友关系加深"
+        },
+        {
+          "id": "ch2_escape_wit",
+          "desc": "依靠占卜预判与智谋脱身",
+          "effect": "获得敌人破绽信息，但精神力严重透支"
+        },
+        {
+          "id": "ch2_escape_sacrifice",
+          "desc": "付出代价（受伤/失去物品）强行脱身",
+          "effect": "身受重伤，但保住关键线索"
+        }
+      ]
+    },
+    {
+      "chapter_number": 2,
+      "node_id": "ch2_setback",
+      "node_type": "resolution",
+      "trigger_day": 45,
+      "content": "第二章收束。{hero_name}虽脱身但付出代价（受伤、失去重要物品、或暴露身份），这是{hero_name}遭遇的第一次重大挫折。{hero_name}意识到以目前序列9的实力难以对抗敌人，萌生晋升的念头。盟友和导师给予安慰与建议。为第三章的恢复与晋升做铺垫，结尾营造'卧薪尝胆'的氛围。",
+      "prerequisites": [
+        "ch2_escape_branch"
+      ],
+      "branch_options": []
+    },
+    {
+      "chapter_number": 3,
+      "node_id": "ch3_recover",
+      "node_type": "mainline",
+      "trigger_day": 47,
+      "content": "{hero_name}进入疗伤与恢复阶段。身体和精神的双重创伤需要时间修复，{hero_name}在此期间反思第二章的失败，总结教训。导师帮助{hero_name}分析敌人的弱点。这一节点节奏放缓，着重心理描写和成长沉淀，为后续晋升积蓄力量。",
+      "prerequisites": [
+        "ch2_setback"
+      ],
+      "branch_options": []
+    },
+    {
+      "chapter_number": 3,
+      "node_id": "ch3_potion_material",
+      "node_type": "branch",
+      "trigger_day": 50,
+      "content": "{hero_name}决定晋升序列8，需要收集序列8·小丑的魔药材料。材料获取途径有不同选择，根据用户日记反映的行事风格和前序积累（盟友、专研方向），AI 决定{hero_name}的获取方式。不同方式影响晋升过程的顺利程度和额外收获。",
+      "prerequisites": [
+        "ch3_recover"
+      ],
+      "branch_options": [
+        {
+          "id": "ch3_mat_purchase",
+          "desc": "通过黑市和盟友网络购买材料",
+          "effect": "安全但耗费资源，可能买到赝品需鉴别"
+        },
+        {
+          "id": "ch3_mat_hunt",
+          "desc": "亲自冒险猎取非凡生物材料",
+          "effect": "危险但获得额外历练，可能发现新线索"
+        },
+        {
+          "id": "ch3_mat_quest",
+          "desc": "接取塔罗会委托以材料为报酬",
+          "effect": "稳妥但耗时，同时推进支线剧情"
+        }
+      ]
+    },
+    {
+      "chapter_number": 3,
+      "node_id": "ch3_train",
+      "node_type": "mainline",
+      "trigger_day": 55,
+      "content": "材料备齐后，{hero_name}在导师指导下进行晋升前的准备训练。包括精神力强化、灵性冥想、以及对小丑序列能力的预研。训练过程要体现{hero_name}的成长和决心，同时交代'消化魔药'的概念——晋升不是终点，理解并运用能力才是关键。为高潮晋升做铺垫。",
+      "prerequisites": [
+        "ch3_potion_material"
+      ],
+      "branch_options": []
+    },
+    {
+      "chapter_number": 3,
+      "node_id": "ch3_promotion",
+      "node_type": "climax",
+      "trigger_day": 60,
+      "content": "第三章高潮。{hero_name}服下序列8·小丑的魔药，经历晋升过程。这是危险时刻——魔药可能带来精神污染和失控风险，{hero_name}需要在幻觉与痛苦中保持自我。晋升过程要有克苏鲁式的精神体验：扭曲的意象、远古的低语、自我认知的动摇。{hero_name}凭借序章以来的意志力和成长成功晋升，获得小丑的能力。晋升后需要一段消化期。",
+      "prerequisites": [
+        "ch3_train"
+      ],
+      "branch_options": []
+    },
+    {
+      "chapter_number": 3,
+      "node_id": "ch3_truth",
+      "node_type": "mainline",
+      "trigger_day": 63,
+      "content": "晋升恢复后，{hero_name}凭借新获得的小丑能力（伪装、情绪收敛）和更强的占卜，重新审视第二章的敌人线索，发现了一个被忽略的关键真相——敌人的真正目的远比想象中危险，可能涉及更高阶的存在或更大的阴谋。这一发现将剧情推向第四章的高潮。",
+      "prerequisites": [
+        "ch3_promotion"
+      ],
+      "branch_options": []
+    },
+    {
+      "chapter_number": 3,
+      "node_id": "ch3_resolve",
+      "node_type": "resolution",
+      "trigger_day": 65,
+      "content": "第三章收束。{hero_name}掌握了敌人的真相，决心主动出击而非被动防守。与盟友和导师商议对策，制定反击计划。{hero_name}此刻已是序列8的非凡者，信心与实力都有提升。为第四章的决战做铺垫，结尾营造'暴风雨将至'的紧张感。",
+      "prerequisites": [
+        "ch3_truth"
+      ],
+      "branch_options": []
+    },
+    {
+      "chapter_number": 4,
+      "node_id": "ch4_counterattack",
+      "node_type": "mainline",
+      "trigger_day": 66,
+      "content": "{hero_name}开始主动反击。利用小丑的伪装能力潜入敌人外围，搜集更多情报，逐步瓦解敌人的布局。这一阶段{hero_name}从被动转为主动，节奏加快，行动密集。{hero_name}的占卜与小丑能力配合使用，展现成长后的实力。",
+      "prerequisites": [
+        "ch3_resolve"
+      ],
+      "branch_options": []
+    },
+    {
+      "chapter_number": 4,
+      "node_id": "ch4_alliance_branch",
+      "node_type": "branch",
+      "trigger_day": 70,
+      "content": "{hero_name}意识到敌人势力庞大，单靠个人和小团队难以抗衡，需要联合更多力量。根据用户日记反映的社交策略和前序积累的人脉，AI 决定{hero_name}联合哪些势力。不同联合方式影响决战的走向和代价。",
+      "prerequisites": [
+        "ch4_counterattack"
+      ],
+      "branch_options": [
+        {
+          "id": "ch4_ally_tarot",
+          "desc": "联合塔罗会多成员共同行动",
+          "effect": "获得全方位支援，但需分享情报与功劳"
+        },
+        {
+          "id": "ch4_ally_official",
+          "desc": "寻求官方非凡者组织介入",
+          "effect": "获得正规力量，但受规则约束可能被动"
+        },
+        {
+          "id": "ch4_ally_rival",
+          "desc": "联合与敌对势力有仇的其他势力",
+          "effect": "获得战力，但盟友动机复杂，有隐患"
+        }
+      ]
+    },
+    {
+      "chapter_number": 4,
+      "node_id": "ch4_promotion7",
+      "node_type": "mainline",
+      "trigger_day": 75,
+      "content": "决战前夕，{hero_name}为应对更强敌人，冒险晋升序列7·魔术师。这次晋升比序列8更危险，但{hero_name}凭借之前的积累和更坚定的意志成功晋升，获得火焰跳跃、纸人替身等关键战斗能力。晋升过程要体现{hero_name}的成长与决心，为最终决战提供战力基础。晋升后{hero_name}几乎没有消化时间便投入战斗，增加紧迫感。",
+      "prerequisites": [
+        "ch4_alliance_branch"
+      ],
+      "branch_options": []
+    },
+    {
+      "chapter_number": 4,
+      "node_id": "ch4_final_battle",
+      "node_type": "climax",
+      "trigger_day": 80,
+      "content": "全书高潮。{hero_name}率领联合力量与敌人展开决战。战斗要宏大且紧张，{hero_name}综合运用占卜预判、小丑伪装、魔术师逃脱等多序列能力，与敌人斗智斗勇。敌人的真正阴谋在战斗中揭露，危机达到顶点。{hero_name}面临生死考验，可能需要牺牲什么才能阻止敌人。这是对{hero_name}全程成长的总检验。",
+      "prerequisites": [
+        "ch4_promotion7"
+      ],
+      "branch_options": []
+    },
+    {
+      "chapter_number": 4,
+      "node_id": "ch4_sacrifice_branch",
+      "node_type": "branch",
+      "trigger_day": 82,
+      "content": "决战关键时刻，{hero_name}面临重大抉择——为阻止敌人需要付出某种代价。根据用户日记反映的价值观和前序所有分支积累，AI 决定{hero_name}的抉择。不同抉择导向略有不同的结局，但都让{hero_name}赢得胜利。",
+      "prerequisites": [
+        "ch4_final_battle"
+      ],
+      "branch_options": [
+        {
+          "id": "ch4_sac_item",
+          "desc": "牺牲一件重要非凡物品封印敌人",
+          "effect": "胜利但失去重要道具，结局偏务实"
+        },
+        {
+          "id": "ch4_sac_power",
+          "desc": "透支部分非凡力量彻底消灭敌人",
+          "effect": "胜利但实力暂时受损，结局偏悲壮"
+        },
+        {
+          "id": "ch4_sac_risk",
+          "desc": "冒险以智谋化解危机，不付出大代价",
+          "effect": "险胜但埋下隐患，结局偏开放"
+        }
+      ]
+    },
+    {
+      "chapter_number": 4,
+      "node_id": "ch4_victory",
+      "node_type": "resolution",
+      "trigger_day": 85,
+      "content": "第四章收束。决战胜利，敌人被击败或封印。{hero_name}在废墟中喘息，回望这场战斗的代价与收获。盟友的伤亡、自身的损失、城市的创伤——胜利不是没有代价。{hero_name}开始收拾残局，为终章的收束做准备。结尾营造'尘埃落定但余波未平'的氛围。",
+      "prerequisites": [
+        "ch4_sacrifice_branch"
+      ],
+      "branch_options": []
+    },
+    {
+      "chapter_number": 5,
+      "node_id": "ch5_aftermath",
+      "node_type": "mainline",
+      "trigger_day": 86,
+      "content": "终章开篇。决战后的余波。{hero_name}处理善后事宜：安抚盟友、向塔罗会汇报、修复因战斗受损的掩护身份。城市逐渐恢复平静，但非凡世界的格局已因这场战斗而改变。{hero_name}在忙碌中回味这 90 天的经历，感慨万千。这一节点节奏舒缓，重在情感沉淀。",
+      "prerequisites": [
+        "ch4_victory"
+      ],
+      "branch_options": []
+    },
+    {
+      "chapter_number": 5,
+      "node_id": "ch5_farewell_branch",
+      "node_type": "branch",
+      "trigger_day": 87,
+      "content": "故事接近尾声，{hero_name}需要与某些重要人物告别或道别——可能是导师完成使命离去、盟友各奔前程、或某个角色的最终归宿。根据用户日记反映的情感倾向和前序分支，AI 决定告别的对象和方式。告别要动人但不煽情，符合诡秘世界克制的情感表达。",
+      "prerequisites": [
+        "ch5_aftermath"
+      ],
+      "branch_options": [
+        {
+          "id": "ch5_far_mentor",
+          "desc": "与导师道别，导师踏上自己的旅途",
+          "effect": "传承主题，主角真正独立"
+        },
+        {
+          "id": "ch5_far_ally",
+          "desc": "与并肩作战的盟友道别",
+          "effect": "友情主题，留下重逢的可能"
+        },
+        {
+          "id": "ch5_far_enemy",
+          "desc": "面对败敌的最终结局",
+          "effect": "宿命主题，对敌人有更深的理解"
+        }
+      ]
+    },
+    {
+      "chapter_number": 5,
+      "node_id": "ch5_future",
+      "node_type": "mainline",
+      "trigger_day": 88,
+      "content": "{hero_name}展望未来。经历了这 90 天，{hero_name}已从普通人成长为序列7的成熟非凡者，在塔罗会中有了稳固地位。{hero_name}思考接下来的路——继续晋升、守护城市、还是探索更广阔的世界。这一节点体现{hero_name}的成长蜕变，为最终结局定调。",
+      "prerequisites": [
+        "ch5_farewell_branch"
+      ],
+      "branch_options": []
+    },
+    {
+      "chapter_number": 5,
+      "node_id": "ch5_final_divination",
+      "node_type": "climax",
+      "trigger_day": 89,
+      "content": "终章高潮。{hero_name}进行人生中最重要的一次占卜——回望自己的命运轨迹，也窥见未来的可能。这次占卜串联起全书伏笔，让序章的预言在此时得到呼应和解释。占卜中{hero_name}看见自己走过的路、遇到的人、经历的事，形成一个完整的命运闭环。这是情感与叙事的高点。",
+      "prerequisites": [
+        "ch5_future"
+      ],
+      "branch_options": []
+    },
+    {
+      "chapter_number": 5,
+      "node_id": "ch5_ending",
+      "node_type": "resolution",
+      "trigger_day": 90,
+      "content": "故事结局。占卜结束后，{hero_name}收起塔罗牌，走出占卜室，迎接新的黎明。结尾要点题'你的日常，就是{hero_name}的传奇'——暗示{hero_name}的故事还将以另一种方式继续（每天的生活仍在创造新的传奇）。结局要令人满意但留有余韵，不刻意大团圆也不强行悲剧，符合诡秘世界'平静中见深远'的基调。为整个 90 天旅程画上句号。",
+      "prerequisites": [
+        "ch5_final_divination"
+      ],
+      "branch_options": []
+    }
+  ]
+}

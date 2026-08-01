@@ -1,0 +1,158 @@
+{
+  "world_id": "lord_of_mysteries",
+  "encounters": [
+    {
+      "encounter_id": "enc_strange_letter",
+      "title": "神秘信件",
+      "content_template": "主角{hero_name}回到住所时，发现桌上多了一封没有署名的信件。信封用暗红色火漆封口，印着一个主角从未见过的纹章——一只衔着星辰的渡鸦。信中用晦涩的诗句提及了{hero_name}近期的一次占卜，并预言'当红月升起第三次时，旧日的回声将敲响你的门'。信件没有落款，纸张散发着淡淡的灵性波动。",
+      "min_chapter": 0,
+      "max_chapter": 3,
+      "min_path_level": 9,
+      "tags": ["悬疑", "线索"]
+    },
+    {
+      "encounter_id": "enc_stray_cat",
+      "title": "流浪猫的低语",
+      "content_template": "一只通体漆黑的猫突然出现在{hero_name}的必经之路上，用异常聪慧的碧绿眼眸注视着主角。在灵视中，这只猫周身萦绕着微弱的非凡气息，似乎并非普通的生灵。它引领主角走到一条平时不会注意的小巷尽头，那里有一样被人遗落的东西。之后黑猫便消失在雾气中，仿佛从未出现。",
+      "min_chapter": 0,
+      "max_chapter": 5,
+      "min_path_level": 9,
+      "tags": ["日常", "灵异", "线索"]
+    },
+    {
+      "encounter_id": "enc_old_bookshop",
+      "title": "旧书店奇遇",
+      "content_template": "{hero_name}路过一家此前从未注意过的旧书店，橱窗里积着厚厚的灰尘。鬼使神差地推门而入，店内一本泛黄的古书自行翻开，页面上的文字似乎是某种古代神秘语言的占卜记录。书中记载的一段内容与{hero_name}最近困扰的一个问题隐隐相关。书店老板是个佝偻的老人，对主角的到来毫不意外，只说了一句'它等了你很久'。",
+      "min_chapter": 1,
+      "max_chapter": 4,
+      "min_path_level": 9,
+      "tags": ["探索", "线索"]
+    },
+    {
+      "encounter_id": "enc_fog_figure",
+      "title": "雾中人影",
+      "content_template": "一个浓雾弥漫的夜晚，{hero_name}走在回家的路上，忽然察觉雾气深处有一个人影在注视着自己。人影的轮廓在灵视中呈现出异常的灵性波动——不像活人，也不像普通的灵体。当主角试图靠近时，人影消散在雾中，只在地面留下一枚古老的硬币，正面刻着主角的塔罗代号。这枚硬币散发着若有若无的预言之力。",
+      "min_chapter": 1,
+      "max_chapter": 5,
+      "min_path_level": 9,
+      "tags": ["灵异", "悬疑"]
+    },
+    {
+      "encounter_id": "enc_dream_prophecy",
+      "title": "预言之梦",
+      "content_template": "这一夜{hero_name}做了一个异常清晰的梦。梦中主角站在一座被红光笼罩的钟塔顶端，俯瞰着整座城市。远处有什么巨大的东西正在雾海之下苏醒。一个模糊的声音在梦中念出了一段主角听不懂的咒语。醒来后，主角发现自己无意识地在床头的纸上写下了梦中咒语的几个音节。这些音节似乎蕴含着某种力量，但也透着危险。",
+      "min_chapter": 0,
+      "max_chapter": 4,
+      "min_path_level": 9,
+      "tags": ["悬疑", "灵异", "线索"]
+    },
+    {
+      "encounter_id": "enc_lost_diary",
+      "title": "遗失的日记",
+      "content_template": "{hero_name}在整理占卜室或住所时，发现了一个不属于自己旧物。那是一本残破的日记，属于一位已故的非凡者。日记的最后几页记录了死者生前调查的一桩秘事，笔迹越到后面越潦草，似乎主人的精神状态正在恶化。最后一页只写着一句话：'它们一直在雾的另一边看着我们。'日记中夹着一张手绘的地图，标记着一个未知地点。",
+      "min_chapter": 1,
+      "max_chapter": 4,
+      "min_path_level": 9,
+      "tags": ["线索", "悬疑"]
+    },
+    {
+      "encounter_id": "enc_market_merchant",
+      "title": "神秘商人",
+      "content_template": "在城市的黑市角落，{hero_name}遇到一个戴着面具的神秘商人。商人的摊位上摆满了各种稀奇古怪的非凡物品和材料，其中一件引起了主角的注意——那是一个能够增强占卜精度的灵性媒介。商人开出的价格不是金钱，而是要求{hero_name}为他占卜一卦，占卜的内容关乎商人自己的命运。这个交易背后似乎隐藏着更深的秘密。",
+      "min_chapter": 1,
+      "max_chapter": 4,
+      "min_path_level": 9,
+      "tags": ["日常", "线索"]
+    },
+    {
+      "encounter_id": "enc_alley_attack",
+      "title": "巷中袭击",
+      "content_template": "深夜归家途中，{hero_name}在一条偏僻小巷遭遇袭击。袭击者是一名蒙面的低阶非凡者，似乎受雇于某股势力来试探主角的实力。对方出手狠辣，但不致命——更像是在试探而非暗杀。战斗中{hero_name}需要凭借占卜预判和已有能力化解危机。击退或摆脱袭击者后，主角从对方遗落的物品中获得一条追查幕后主使的线索。",
+      "min_chapter": 1,
+      "max_chapter": 4,
+      "min_path_level": 8,
+      "tags": ["战斗", "线索"]
+    },
+    {
+      "encounter_id": "enc_tarot_reading",
+      "title": "意外的塔罗占卜",
+      "content_template": "{hero_name}进行日常占卜练习时，塔罗牌却给出了一个完全超出预期的牌阵。牌面组合指向一个主角从未占卜过的问题，预言中提及的'转折点'与{hero_name}近期的某个决定密切相关。这次占卜的清晰度远超平时，仿佛有某种力量在借主角之手传递信息。占卜结束后，主角的精神力出现异常波动，需要一段时间恢复。",
+      "min_chapter": 1,
+      "max_chapter": 5,
+      "min_path_level": 9,
+      "tags": ["悬疑", "线索"]
+    },
+    {
+      "encounter_id": "enc_underground_market",
+      "title": "地下集市的入口",
+      "content_template": "通过一次偶然的占卜或盟友的指引，{hero_name}发现了一处隐藏在城市地下的非凡者黑市入口。这里聚集着各路非凡者，交易着表世界无法想象的物品——非凡材料、禁忌魔药配方、灵性媒介、甚至情报。主角第一次踏入这个地下世界，既大开眼界又深感危险。在集市中，主角注意到一个被严密看守的摊位，似乎在出售与近期事件相关的东西。",
+      "min_chapter": 2,
+      "max_chapter": 4,
+      "min_path_level": 9,
+      "tags": ["探索", "日常"]
+    },
+    {
+      "encounter_id": "enc_ghost_memory",
+      "title": "幽灵的残忆",
+      "content_template": "在一次冥想或占卜中，{hero_name}的灵视突然捕捉到一缕游离的灵性残影——那是一位已故非凡者留在世间的最后一段记忆。残忆如走马灯般闪过：死者生前的最后时刻、他看见的某个可怕存在、以及一句未说完的警告。这段记忆给主角带来剧烈的精神冲击，但也包含一条关键线索。事后主角需要长时间休息来平复灵性波动。",
+      "min_chapter": 2,
+      "max_chapter": 5,
+      "min_path_level": 8,
+      "tags": ["灵异", "线索"]
+    },
+    {
+      "encounter_id": "enc_old_friend",
+      "title": "旧识重逢",
+      "content_template": "在街头偶遇一位主角觉醒前的旧识。对方是普通人，对{hero_name}如今的非凡者身份一无所知，只当老友重逢般热情寒暄。这次相遇让主角短暂回到普通人的视角，感慨两个世界的落差。交谈中，旧识无意间提起的一则见闻——他目击的某个'奇怪现象'——恰好与{hero_name}正在调查的事件有关。普通人的视角有时能看到非凡者忽略的细节。",
+      "min_chapter": 1,
+      "max_chapter": 3,
+      "min_path_level": 9,
+      "tags": ["日常", "线索"]
+    },
+    {
+      "encounter_id": "enc_hidden_room",
+      "title": "隐藏的密室",
+      "content_template": "在探索一处旧建筑或调查某地时，{hero_name}的灵视捕捉到墙壁后面异常的灵性波动。仔细探查后，主角发现了一间被魔法封印的隐藏密室。密室内陈设简朴却透着岁月感，墙上刻满了神秘符号，桌上放着一本记录着某种失传占卜手法的笔记和几件保存完好的灵性媒介。这间密室似乎属于一位前辈非凡者，他留下了这些'遗产'等待有缘人。",
+      "min_chapter": 2,
+      "max_chapter": 4,
+      "min_path_level": 8,
+      "tags": ["探索", "线索"]
+    },
+    {
+      "encounter_id": "enc_cursed_item",
+      "title": "诅咒之物",
+      "content_template": "{hero_name}获得（或捡到）一件看似普通的物品——可能是一枚戒指、一面镜子或一把钥匙。这件物品在灵视中散发着不祥的暗红色光芒，附着着某种诅咒。接触物品后，主角开始经历一些诡异现象：幻觉、厄运、或被某种存在窥视的感觉。主角需要通过占卜和调查弄清物品的来历与诅咒的解除方法，这个过程本身就是一次惊险的小型冒险。",
+      "min_chapter": 2,
+      "max_chapter": 5,
+      "min_path_level": 8,
+      "tags": ["战斗", "灵异", "悬疑"]
+    },
+    {
+      "encounter_id": "enc_prophecy_child",
+      "title": "预言之子",
+      "content_template": "{hero_name}在一次外出中遇到一个孩子，这个孩子似乎能'看见'一些普通人看不见的东西。孩子天真地拉着主角的衣角，说出几句令{hero_name}心头一震的话——那些话像是某种预言，与主角的命运或正在调查的事件紧密相关。孩子的父母对此毫不知情，只当童言无忌。主角需要判断这是灵性天赋的萌芽，还是某种力量借孩子之口传递信息。",
+      "min_chapter": 1,
+      "max_chapter": 4,
+      "min_path_level": 9,
+      "tags": ["线索", "悬疑", "灵异"]
+    },
+    {
+      "encounter_id": "enc_nightmare_realm",
+      "title": "梦魇领域",
+      "content_template": "入睡后，{hero_name}发现自己陷入了一个异常的梦境——这并非普通梦境，而是某种非凡力量构建的'梦魇领域'。在梦中，现实的规则被扭曲，主角面对的是自己内心深处的恐惧与阴影。要脱困，{hero_name}必须在梦中直面恐惧并找到破绽。这个经历虽然危险，但战胜后能让主角的精神力得到淬炼，对后续的晋升有所助益。",
+      "min_chapter": 3,
+      "max_chapter": 5,
+      "min_path_level": 8,
+      "tags": ["灵异", "战斗"]
+    },
+    {
+      "encounter_id": "enc_secret_meeting",
+      "title": "秘密集会",
+      "content_template": "通过盟友情报或占卜指引，{hero_name}偶然窥见了一场秘密集会。集会的参与者都是蒙面的非凡者，商议着某件与城市非凡者格局相关的大事。主角藏身暗处偷听，获得了珍贵的情报，但也因此被卷入了更深的漩涡——集会中似乎有人察觉到了窥视者的存在。主角需要在暴露前安全撤离，这次冒险获得的情报可能改变后续的局势判断。",
+      "min_chapter": 2,
+      "max_chapter": 4,
+      "min_path_level": 9,
+      "tags": ["悬疑", "线索", "战斗"]
+    }
+  ]
+}

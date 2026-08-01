@@ -1,0 +1,33 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+android/
+ios/
+
+# Temp files
+*.base64
+*.log
+test-screenshots/
+settings-screenshot.png
+
+# Design assets (not part of codebase)
+mystory-app-design/
+mystory-ui-design/
+diary-app-ui-research/
+.trae-html-share-packages/
+
+# Secrets
+api_key.txt
+.env
+.env.*
+!.env.example
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
