@@ -336,10 +336,19 @@ class StoryEngine {
         finalContent = polishResult.content;
       }
 
-      const postPolishReview = await this.reviewLoop.verify(
+      let postPolishReview = await this.reviewLoop.verify(
         finalContent, prompt.systemPrompt, aiContext.adapter, aiContext.apiKey, aiContext.baseUrl,
         { temperature: 0.2, maxTokens: 3000, continuityContext: prompt.continuityContext, storyPlanContext: prompt.storyPlanContext }
       )
+      if (!postPolishReview.passed) {
+        const repaired = await this._repairPlanCompliance(finalContent, postPolishReview.issues, prompt.systemPrompt, aiContext, prompt.storyPlanContext)
+        if (repaired.success) {
+          postPolishReview = await this.reviewLoop.verify(
+            repaired.content, prompt.systemPrompt, aiContext.adapter, aiContext.apiKey, aiContext.baseUrl,
+            { temperature: 0.15, maxTokens: 3000, continuityContext: prompt.continuityContext, storyPlanContext: prompt.storyPlanContext }
+          )
+        }
+      }
       if (!postPolishReview.passed) {
         await this.segmentRepo.updateStatus(segmentId, 'generate_failed')
         return { success: false, segmentId, error: `润色后连贯性复核未通过：${(postPolishReview.issues || []).join('；')}`, errorCode: 'E007' }
@@ -609,10 +618,19 @@ class StoryEngine {
         finalContent = polishResult.content;
       }
 
-      const postPolishReview = await this.reviewLoop.verify(
+      let postPolishReview = await this.reviewLoop.verify(
         finalContent, prompt.systemPrompt, aiContext.adapter, aiContext.apiKey, aiContext.baseUrl,
         { temperature: 0.2, maxTokens: 3000, continuityContext: prompt.continuityContext, storyPlanContext: prompt.storyPlanContext }
       )
+      if (!postPolishReview.passed) {
+        const repaired = await this._repairPlanCompliance(finalContent, postPolishReview.issues, prompt.systemPrompt, aiContext, prompt.storyPlanContext)
+        if (repaired.success) {
+          postPolishReview = await this.reviewLoop.verify(
+            repaired.content, prompt.systemPrompt, aiContext.adapter, aiContext.apiKey, aiContext.baseUrl,
+            { temperature: 0.15, maxTokens: 3000, continuityContext: prompt.continuityContext, storyPlanContext: prompt.storyPlanContext }
+          )
+        }
+      }
       if (!postPolishReview.passed) {
         await this.segmentRepo.updateStatus(segmentId, 'generate_failed')
         return { success: false, segmentId, error: `润色后连贯性复核未通过：${(postPolishReview.issues || []).join('；')}`, errorCode: 'E007' }
@@ -1126,6 +1144,38 @@ ${content}
       console.warn('[StoryEngine] 润色异常，使用审查后内容:', e.message);
       return { success: true, content: content };
     }
+  }
+
+  // 当 Critical 能定位计划违例但没有提供可用 revised_content 时，使用一次
+  // 定向终稿修复把“发现问题”真正转化为“修复问题”。修复后仍须重新审查。
+  async _repairPlanCompliance(content, issues, systemPrompt, aiContext, storyPlanContext) {
+    const issueList = (issues || []).map(item => `- ${item}`).join('\n') || '- 未通过当天剧情计划复核'
+    const prompt = `你是连载小说的终稿修复编辑。请只输出修复后的完整小说正文，不要标题、说明、JSON 或引用标注。
+
+【Critical 发现的必须修复问题】
+${issueList}
+
+【当天剧情计划（不可违反）】
+${storyPlanContext}
+
+【修复规则】
+1. 保留原文已经成立的世界观、角色、物品和有效情节。
+2. 必须修复所有列出的开场承接、日记因果、命运后果、实体状态或结束钩子问题。
+3. 每项日记事件必须落实为角色行动，并明确改变风险、资源、关系、信息、时间成本或下一步目标。
+4. 不得为修复而删除用户选择的后果，也不得用解释外的时间跳跃掩盖衔接。
+5. 正文不少于 800 字，完整结束。
+
+【待修复正文】
+${content}`
+    const result = await ErrorHandler.callWithRetry(async () => aiContext.adapter.chat({
+      apiKey: aiContext.apiKey,
+      baseUrl: aiContext.baseUrl,
+      systemPrompt,
+      userPrompt: prompt,
+      temperature: 0.2,
+      maxTokens: 3200,
+    }), '剧情计划合规修复')
+    return result.success && result.content ? { success: true, content: result.content.trim() } : { success: false, content: content }
   }
 
   /**

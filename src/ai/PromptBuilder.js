@@ -43,7 +43,9 @@ const REVIEW_PROMPT_ROUND_1 = `你是一位严格的小说编辑，精通《诡�
   "severity": "high"或"medium"或"low",
   "suggestions": "针对问题的具体修改建议，如果不通过则必须给出修改方向",
   "revised_content": "如果不通过，请在此字段中输出修改后的完整段落；如果通过，此字段为空字符串"
-}`;
+}
+
+输出必须以 { 开始、以 } 结束；禁止使用 Markdown 代码块、审查说明或“通过/不通过”的自然语言。`;
 
 /**
  * 审查 Prompt — 轮次 2（审查修改稿）
@@ -71,7 +73,9 @@ const REVIEW_PROMPT_ROUND_2 = `你是一位严格的小说编辑，精通《诡�
   "severity": "high"或"medium"或"low",
   "suggestions": "修改建议",
   "revised_content": "如果不通过，输出修改后的完整段落；如果通过，为空字符串"
-}`;
+}
+
+输出必须以 { 开始、以 } 结束；禁止使用 Markdown 代码块、审查说明或“通过/不通过”的自然语言。`;
 
 /**
  * 摘要生成 Prompt

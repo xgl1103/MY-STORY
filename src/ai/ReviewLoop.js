@@ -107,7 +107,7 @@ class ReviewLoop {
       apiKey,
       baseUrl,
       reviewParams,
-      0
+      1 // 格式异常或瞬时服务波动时允许一次复核重试，正常路径仍只调用一次。
     )
     return { finalContent: result.content, passed: result.passed, totalRounds: result.roundsUsed, issues: result.issues }
   }
@@ -265,6 +265,12 @@ class ReviewLoop {
     if (passedMatch?.[1]?.toLowerCase() === 'true') {
       return { passed: true, issues: [], revised_content: '' }
     }
+
+    // 极少数模型会无视 JSON 约束，只给出明确的中文结论。只接受非常窄的
+    // “结论/审查结果 + 通过”格式，任何包含问题、修改建议或否定的自然语言都不放行。
+    const compact = content.trim()
+    const explicitPass = /^(?:【?(?:结论|审查结果|审核结果)】?\s*[：:]?\s*)?(?:通过|合格|PASS)[。！!]?$/i
+    if (explicitPass.test(compact)) return { passed: true, issues: [], revised_content: '' }
 
     // 所有解析方式均失败
     throw new Error('无法解析审查结果 JSON');
