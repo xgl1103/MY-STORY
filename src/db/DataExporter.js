@@ -34,6 +34,9 @@ export async function importData(data) {
     throw new Error('E014: 文件格式不正确，请选择有效的备份文件')
   }
 
+  // 备份文件有意不含 API Key；导入时必须保留当前设备已有的加密密钥。
+  const existingApiKey = queryOne('SELECT api_key_encrypted FROM user_settings WHERE id = 1')?.api_key_encrypted || null
+
   runTransaction(() => {
     // 清空用户数据表（保留预置配置表 world_settings/encounter_library/story_outline）
     execute('DELETE FROM story_plan')
@@ -52,20 +55,20 @@ export async function importData(data) {
     execute(
       `INSERT INTO user_settings (id, hero_name, world_id, path_id, duration_days,
         current_day, current_chapter, ai_provider, ai_base_url,
-        ai_temperature, ai_max_tokens, story_started)
-       VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        ai_temperature, ai_max_tokens, story_started, api_key_encrypted)
+       VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [u.hero_name, u.world_id, u.path_id, u.duration_days, u.current_day,
        u.current_chapter, u.ai_provider, u.ai_base_url,
-       u.ai_temperature, u.ai_max_tokens, u.story_started ? 1 : 0]
+       u.ai_temperature, u.ai_max_tokens, u.story_started ? 1 : 0, existingApiKey]
     )
 
     // 逐表插入其余数据
     if (data.diary_entries) {
       for (const d of data.diary_entries) {
         execute(
-          `INSERT INTO diary_entries (id, day_number, raw_text, behavior_tags, is_blank_day, created_at)
-           VALUES (?, ?, ?, ?, ?, ?)`,
-          [d.id, d.day_number, d.raw_text, d.behavior_tags, d.is_blank_day ? 1 : 0, d.created_at]
+          `INSERT INTO diary_entries (id, day_number, raw_text, behavior_tags, is_blank_day, mood, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          [d.id, d.day_number, d.raw_text, d.behavior_tags, d.is_blank_day ? 1 : 0, d.mood ?? null, d.created_at]
         )
       }
     }
@@ -86,11 +89,11 @@ export async function importData(data) {
       for (const s of data.story_segments) {
         execute(
           `INSERT INTO story_segments (id, day_number, chapter_id, diary_id, content,
-            mapping_desc, revision_count, internal_review_count, is_edited, status,
+            mapping_desc, diary_references, revision_count, internal_review_count, is_edited, status,
             created_at, finalized_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [s.id, s.day_number, s.chapter_id, s.diary_id, s.content,
-           s.mapping_desc, s.revision_count, s.internal_review_count,
+           s.mapping_desc, s.diary_references ?? null, s.revision_count, s.internal_review_count,
            s.is_edited ? 1 : 0, s.status, s.created_at, s.finalized_at]
         )
       }

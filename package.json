@@ -6,11 +6,12 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "test": "npm run test:fullchain && npm run test:narrative && npm run test:serverless && npm run test:planner && npm run test:sqlite-memory",
+    "test": "npm run test:fullchain && npm run test:narrative && npm run test:serverless && npm run test:planner && npm run test:sqlite-memory && npm run test:data-export",
     "test:fullchain": "node tests/fullchain.test.mjs",
     "test:narrative": "node tests/narrative-graph.test.mjs",
     "test:serverless": "node tests/serverless-api.test.mjs",
     "test:planner": "node tests/story-planner.test.mjs",
+    "test:data-export": "node tests/data-export-planning.test.mjs",
     "test:sqlite-memory": "node tests/real-sqlite-memory.test.mjs",
     "test:real-7day": "node tests/real-7day-continuity.mjs",
     "build": "vite build",
