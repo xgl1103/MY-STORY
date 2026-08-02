@@ -66,11 +66,49 @@ const days = [
   { text: '我和朋友坦诚交流，决定把「钟表匠线索」交给「可靠组织」继续追查。', tags: ['社交', '工作'] },
 ]
 
-const report = { runId, startedAt: new Date().toISOString(), days: [], choice: null, critical: null, errors: [] }
+const report = { runId, startedAt: new Date().toISOString(), status: 'running', days: [], choice: null, critical: null, errors: [] }
 const generatedStories = new Map()
 
+const reportPaths = {
+  json: path.join(outputDir, `real-7day-${runId}.json`),
+  markdown: path.join(outputDir, `real-7day-${runId}.md`),
+}
+
+const buildMarkdown = () => `# My Story 真实 DeepSeek 七日连续性测试
+
+- Run: ${report.runId}
+- Status: ${report.status}
+- Completed days: ${report.days.length}/7
+
+## Failures
+${report.errors.length ? report.errors.map(item => `- Day ${item.day ?? 'N/A'} / ${item.stage}: ${item.message}`).join('\n') : 'None'}
+
+## Days
+${report.days.length ? report.days.map(day => `### Day ${day.day}
+Input: ${day.input}
+Chars: ${day.chars}
+Clock signal: ${day.containsClock}
+
+开头节选：${day.excerpt}
+
+结尾节选：${day.endingExcerpt}`).join('\n\n') : 'No completed day yet.'}
+
+## Result data
+${JSON.stringify({ choice: report.choice, foreshadowAudit: report.foreshadowAudit, influenceAudit: report.influenceAudit, critical: report.critical, callCounts: report.callCounts }, null, 2)}
+`
+
+const saveReport = async () => {
+  report.updatedAt = new Date().toISOString()
+  report.callCounts = calls.reduce((counts, call) => ({ ...counts, [call.kind]: (counts[call.kind] || 0) + 1 }), {})
+  await fs.writeFile(reportPaths.json, JSON.stringify(report, null, 2), 'utf8')
+  await fs.writeFile(reportPaths.markdown, buildMarkdown(), 'utf8')
+}
+
+let activeDay = null
+try {
 for (let index = 0; index < days.length; index++) {
   const dayNumber = index + 1
+  activeDay = dayNumber
   if (dayNumber === 3) {
     const pending = await storyEngine.getPendingChoiceForNextDay()
     if (!pending) throw new Error('第 2 天定稿后没有出现第 3 天命运选择')
@@ -89,6 +127,8 @@ for (let index = 0; index < days.length; index++) {
     containsClock: result.content.includes('怀表') || result.content.includes('钟表'),
     finalized: finalized.success,
   })
+  // 每完成一天就保存检查点；即使后续中断，已完成内容仍可作为测试案例复核。
+  await saveReport()
 }
 
 const day3WriterPrompt = calls.find(call => call.kind === 'writer' && call.prompt.includes(days[2].text))?.prompt || ''
@@ -122,11 +162,19 @@ report.critical = await critical.verify(
 )
 
 report.finishedAt = new Date().toISOString()
-report.callCounts = calls.reduce((counts, call) => ({ ...counts, [call.kind]: (counts[call.kind] || 0) + 1 }), {})
-const markdown = `# My Story 真实 DeepSeek 七日连续性测试\n\n- Run: ${report.runId}\n- Choice inherited in Writer prompt: ${report.choiceInheritedInWriterPrompt ? 'PASS' : 'FAIL'}\n- Foreshadow audit: ${report.foreshadowAudit?.resolved ? 'PASS' : 'FAIL'}\n- Choice + diary consequence: ${report.influenceAudit?.choiceHasConsequence && report.influenceAudit?.diaryHasConsequence ? 'PASS' : 'FAIL'}\n- Critical rejected contradiction: ${report.critical?.passed === false ? 'PASS' : 'FAIL'}\n\n## Choice\n${JSON.stringify(report.choice, null, 2)}\n\n## Days\n${report.days.map(day => `### Day ${day.day}\nInput: ${day.input}\nChars: ${day.chars}\nClock signal: ${day.containsClock}\n\n开头节选：${day.excerpt}\n\n结尾节选：${day.endingExcerpt}`).join('\n\n')}\n\n## Foreshadow audit\n${JSON.stringify(report.foreshadowAudit, null, 2)}\n\n## Choice and diary consequence audit\n${JSON.stringify(report.influenceAudit, null, 2)}\n\n## Critical result\n${JSON.stringify(report.critical, null, 2)}\n\n## Calls\n${JSON.stringify(report.callCounts, null, 2)}\n`
-await fs.writeFile(path.join(outputDir, `real-7day-${runId}.json`), JSON.stringify(report, null, 2), 'utf8')
-await fs.writeFile(path.join(outputDir, `real-7day-${runId}.md`), markdown, 'utf8')
-console.log(`REPORT_JSON=${path.join(outputDir, `real-7day-${runId}.json`)}`)
-console.log(`REPORT_MD=${path.join(outputDir, `real-7day-${runId}.md`)}`)
+report.status = 'passed'
+await saveReport()
+console.log(`REPORT_JSON=${reportPaths.json}`)
+console.log(`REPORT_MD=${reportPaths.markdown}`)
 console.log(`RESULT choice=${report.choiceInheritedInWriterPrompt} foreshadow=${report.foreshadowAudit?.resolved} diary=${report.influenceAudit?.diaryHasConsequence} criticalRejected=${report.critical?.passed === false}`)
 if (!report.choiceInheritedInWriterPrompt || !report.foreshadowAudit?.resolved || !report.influenceAudit?.choiceHasConsequence || !report.influenceAudit?.diaryHasConsequence || report.critical?.passed !== false || report.plannedDays !== 7 || report.handoffDays !== 7) process.exitCode = 2
+} catch (error) {
+  report.status = 'failed'
+  report.finishedAt = new Date().toISOString()
+  report.errors.push({ day: activeDay, stage: 'generation-or-finalize', message: error?.message || String(error) })
+  await saveReport()
+  console.log(`REPORT_JSON=${reportPaths.json}`)
+  console.log(`REPORT_MD=${reportPaths.markdown}`)
+  console.error(`TEST_FAILED_DAY=${activeDay ?? 'N/A'}: ${error?.message || String(error)}`)
+  process.exitCode = 1
+}
