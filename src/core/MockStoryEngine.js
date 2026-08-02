@@ -276,6 +276,13 @@ class MockStoryEngine {
     return seg ? (seg.status || 'pending') : 'pending'
   }
 
+  // Mock 模式不伪造分支结果；让阅读页在离线演示时平稳跳过命运抉择。
+  async getPendingChoiceForNextDay() { return null }
+
+  async chooseNextDestiny() {
+    throw new Error('离线演示模式不支持保存命运选择')
+  }
+
   // ===== 内部辅助 =====
   _delay(ms) {
     return new Promise(resolve => setTimeout(resolve, ms))

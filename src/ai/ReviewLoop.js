@@ -96,6 +96,22 @@ class ReviewLoop {
     };
   }
 
+  // 润色后复核：防止润色阶段为了文采而改写既有事实。
+  async verify(content, systemPrompt, adapter, apiKey, baseUrl, reviewParams) {
+    const result = await this._reviewRound(
+      content,
+      this.REVIEW_PROMPT_ROUND_2,
+      ['核对润色稿是否改变了既有角色状态、分支选择、伏笔和时间线'],
+      systemPrompt,
+      adapter,
+      apiKey,
+      baseUrl,
+      reviewParams,
+      0
+    )
+    return { finalContent: result.content, passed: result.passed, totalRounds: result.roundsUsed, issues: result.issues }
+  }
+
   /**
    * 执行单个审查轮次（含重试逻辑）
    * @private
@@ -118,6 +134,9 @@ class ReviewLoop {
       let prompt = reviewPrompt.split('{generated_content}').join(currentContent);
       if (reviewPrompt === this.REVIEW_PROMPT_ROUND_2 && previousIssues) {
         prompt = prompt.split('{previous_issues}').join(previousIssues.join('\n'));
+      }
+      if (reviewParams.continuityContext) {
+        prompt += `\n\n【必须核对的既有叙事事实】\n${reviewParams.continuityContext}`
       }
 
       // 调用 AI 审查（复用故事生成的 systemPrompt 保持世界观上下文）
@@ -206,12 +225,42 @@ class ReviewLoop {
       } catch (_) { /* 继续 */ }
     }
 
-    // 3. 提取第一个 { ... } 花括号块
-    const braceMatch = content.match(/\{[\s\S]*\}/);
-    if (braceMatch) {
-      try {
-        return JSON.parse(braceMatch[0]);
-      } catch (_) { /* 继续 */ }
+    // 3. 提取每一个完整、括号平衡的对象。不能用贪婪正则：模型偶尔会
+    // 在 JSON 前后再附带一个对象或说明，/\{[\s\S]*\}/ 会把它们拼在一起。
+    for (let start = 0; start < content.length; start++) {
+      if (content[start] !== '{') continue
+      let depth = 0
+      let inString = false
+      let escaped = false
+      for (let end = start; end < content.length; end++) {
+        const char = content[end]
+        if (inString) {
+          if (escaped) escaped = false
+          else if (char === '\\') escaped = true
+          else if (char === '"') inString = false
+          continue
+        }
+        if (char === '"') inString = true
+        else if (char === '{') depth++
+        else if (char === '}') {
+          depth--
+          if (depth === 0) {
+            try {
+              const parsed = JSON.parse(content.slice(start, end + 1))
+              if (parsed && typeof parsed === 'object' && typeof parsed.passed === 'boolean') return parsed
+            } catch (_) { /* 尝试下一个对象 */ }
+            break
+          }
+        }
+      }
+    }
+
+    // 某些模型会在 revised_content 中写入未转义的换行，导致整个 JSON 无法解析。
+    // 只允许从这种响应中保守地挽救“明确通过”的结论；任何 false 或不明结论仍必须拒绝，
+    // 不能因格式问题把有风险的剧情放行。
+    const passedMatch = content.match(/["']?passed["']?\s*[:：]\s*(true|false)/i)
+    if (passedMatch?.[1]?.toLowerCase() === 'true') {
+      return { passed: true, issues: [], revised_content: '' }
     }
 
     // 所有解析方式均失败

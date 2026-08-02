@@ -67,6 +67,29 @@
         </div>
         <span class="comment-count-text">本章 {{ comments.length }}/{{ totalCommentCount }} 条评论</span>
       </div>
+
+      <section v-if="pendingChoice" class="destiny-choice">
+        <p class="choice-kicker">读完这一页，命运仍在等待</p>
+        <h3>第 {{ pendingChoice.triggerDay }} 天 · 下一步命运</h3>
+        <p class="choice-prompt">{{ pendingChoice.prompt }}</p>
+        <div class="choice-options">
+          <button
+            v-for="option in pendingChoice.options"
+            :key="option.id"
+            class="choice-option"
+            :disabled="selectingChoice"
+            @click="selectDestiny(option)"
+          >
+            <strong>{{ option.desc }}</strong>
+            <span v-if="option.effect">{{ option.effect }}</span>
+          </button>
+        </div>
+      </section>
+
+      <section v-else-if="selectedChoice" class="destiny-confirmed">
+        <p>命运已被写下：{{ selectedChoice.description }}</p>
+        <button class="nav-btn" @click="goWriteNextDay">记录下一天</button>
+      </section>
     </div>
 
     <!-- 底部进度条 -->
@@ -131,6 +154,8 @@ import { useRouter, useRoute } from 'vue-router'
 import { ChapterRepository } from '@/db/repositories/ChapterRepository'
 import { SegmentRepository } from '@/db/repositories/SegmentRepository'
 import { CommentRepository } from '@/db/repositories/CommentRepository'
+import { UserRepository } from '@/db/repositories/UserRepository'
+import { getStoryEngine } from '@/core'
 import { triggerCommentGeneration, generateComments, assessHeatLevel, HEAT_LEVELS } from '@/utils/CommentGenerator'
 import LoadingSpinner from '@/components/LoadingSpinner.vue'
 
@@ -153,6 +178,9 @@ const lineHeight = ref(2)
 const brightness = ref(100)
 const readProgress = ref(0)
 const readerBody = ref(null)
+const pendingChoice = ref(null)
+const selectedChoice = ref(null)
+const selectingChoice = ref(false)
 
 // 渐进展示定时器：每 10 秒刷新可见评论
 let commentTimer = null
@@ -225,6 +253,8 @@ async function loadChapter() {
   comments.value = []
   totalCommentCount.value = 0
   heatLevel.value = 1
+  pendingChoice.value = null
+  selectedChoice.value = null
   if (commentTimer) { clearInterval(commentTimer); commentTimer = null }
   try {
     const chapterId = Number(route.params.chapterId)
@@ -255,6 +285,8 @@ async function loadChapter() {
       } else if (!chapter.value.content) {
         chapter.value.content = ''
       }
+
+      await loadNarrativeChoice(found.id)
 
       // 加载评论
       let allComments = []
@@ -295,6 +327,35 @@ async function loadChapter() {
       readProgress.value = 0
     })
   }
+}
+
+async function loadNarrativeChoice(chapterId) {
+  try {
+    const user = await UserRepository.get()
+    const latest = await SegmentRepository.getByDay(user.current_day)
+    if (!latest || latest.status !== 'finalized' || latest.chapter_id !== chapterId) return
+    pendingChoice.value = await getStoryEngine().getPendingChoiceForNextDay()
+  } catch (e) {
+    console.warn('[Reader] 命运抉择加载失败:', e.message)
+  }
+}
+
+async function selectDestiny(option) {
+  if (!pendingChoice.value || selectingChoice.value) return
+  selectingChoice.value = true
+  try {
+    const result = await getStoryEngine().chooseNextDestiny(pendingChoice.value.nodeId, option.id)
+    selectedChoice.value = result
+    pendingChoice.value = null
+  } catch (e) {
+    alert(`选择未能保存：${e.message || '请重试'}`)
+  } finally {
+    selectingChoice.value = false
+  }
+}
+
+function goWriteNextDay() {
+  router.push('/diary/write')
 }
 
 // 刷新可见评论
@@ -516,6 +577,24 @@ watch(lineHeight, (v) => { try { localStorage.setItem('reader_lineheight', v) } 
   margin-top: var(--spacing-md);
   border-top: 1px solid var(--color-border);
 }
+
+.destiny-choice, .destiny-confirmed {
+  margin: var(--spacing-xl) 0 var(--spacing-lg);
+  padding: var(--spacing-lg);
+  border: 1px solid rgba(196, 92, 62, 0.28);
+  border-radius: var(--radius-lg);
+  background: linear-gradient(145deg, rgba(196, 92, 62, 0.08), var(--color-surface));
+}
+.choice-kicker { color: var(--color-primary); font-size: 12px; letter-spacing: .08em; margin-bottom: var(--spacing-xs); }
+.destiny-choice h3 { color: var(--color-text); font-size: var(--font-size-lg); margin-bottom: var(--spacing-sm); }
+.choice-prompt { color: var(--color-text-secondary); font-size: var(--font-size-sm); line-height: 1.7; margin-bottom: var(--spacing-md); }
+.choice-options { display: grid; gap: var(--spacing-sm); }
+.choice-option { text-align: left; padding: var(--spacing-md); border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-text); }
+.choice-option strong, .choice-option span { display: block; }
+.choice-option strong { color: var(--color-primary); margin-bottom: 4px; }
+.choice-option span { color: var(--color-text-secondary); font-size: 12px; line-height: 1.5; }
+.choice-option:disabled { opacity: .55; }
+.destiny-confirmed { display: flex; align-items: center; justify-content: space-between; gap: var(--spacing-sm); color: var(--color-primary); }
 
 .heat-badge {
   display: flex;

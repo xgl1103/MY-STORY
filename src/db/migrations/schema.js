@@ -170,7 +170,21 @@ CREATE TABLE IF NOT EXISTS foreshadowing (
 );
 CREATE INDEX IF NOT EXISTS idx_foreshadow_status ON foreshadowing(status);
 
--- 13. story_fts（FTS5 全文索引虚拟表，用于动态 RAG 检索）
+-- 13. narrative_node_state（剧情图运行时状态与用户分支选择）
+CREATE TABLE IF NOT EXISTS narrative_node_state (
+  node_id              TEXT PRIMARY KEY,
+  world_id             TEXT NOT NULL,
+  status               TEXT NOT NULL DEFAULT 'pending',
+  selected_option_id   TEXT,
+  selected_option_desc TEXT,
+  selected_effect      TEXT,
+  selected_day         INTEGER,
+  completed_day        INTEGER,
+  updated_at           TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_narrative_status ON narrative_node_state(status);
+
+-- 14. story_fts（FTS5 全文索引虚拟表，用于动态 RAG 检索）
 -- 使用 trigram tokenizer 支持中文（3-gram 分词，无需外部分词器）
 -- 如果 sql.js 不支持 FTS5，创建会失败但不影响其他表
 CREATE VIRTUAL TABLE IF NOT EXISTS story_fts USING fts5(

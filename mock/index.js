@@ -9,6 +9,7 @@ import MockDiaryRepository from './MockDiaryRepository.js';
 import MockChapterRepository from './MockChapterRepository.js';
 import MockSegmentRepository from './MockSegmentRepository.js';
 import MockWorldRepository from './MockWorldRepository.js';
+import MockNarrativeStateRepository from './MockNarrativeStateRepository.js';
 
 import PromptBuilder from '../src/ai/PromptBuilder.js';
 import ReviewLoop from '../src/ai/ReviewLoop.js';
@@ -30,6 +31,7 @@ function createMockEnvironment() {
   const chapterRepo = new MockChapterRepository();
   const segmentRepo = new MockSegmentRepository();
   const worldRepo = new MockWorldRepository();
+  const narrativeRepo = new MockNarrativeStateRepository();
 
   const promptBuilder = new PromptBuilder();
   const reviewLoop = new ReviewLoop();
@@ -39,7 +41,7 @@ function createMockEnvironment() {
   const ragRetriever = new RAGRetriever(worldRepo);
 
   return {
-    userRepo, diaryRepo, chapterRepo, segmentRepo, worldRepo,
+    userRepo, diaryRepo, chapterRepo, segmentRepo, worldRepo, narrativeRepo,
     promptBuilder, reviewLoop, adapterFactory: getAdapterClass,
     immediateContext, summaryMemory, ragRetriever,
   };
@@ -68,6 +70,7 @@ function createMockStoryEngine(options = {}) {
   const chapterRepo = new MockChapterRepository();
   const segmentRepo = new MockSegmentRepository();
   const worldRepo = new MockWorldRepository();
+  const narrativeRepo = new MockNarrativeStateRepository();
 
   // 模拟应用刷新后的重新初始化：只从可序列化快照恢复持久化数据，
   // 绝不复用旧 Repository 实例。
@@ -103,7 +106,7 @@ function createMockStoryEngine(options = {}) {
 
   // 创建 StoryEngine（自动装配所有子组件）
   const storyEngine = new StoryEngine({
-    userRepo, diaryRepo, chapterRepo, segmentRepo, worldRepo,
+    userRepo, diaryRepo, chapterRepo, segmentRepo, worldRepo, narrativeRepo,
   });
 
   // 全链路测试使用内存 Repository；动态 RAG 不应绕过它去访问 SQLite 全局连接。
@@ -123,7 +126,7 @@ function createMockStoryEngine(options = {}) {
 
   return {
     storyEngine,
-    repos: { userRepo, diaryRepo, chapterRepo, segmentRepo, worldRepo },
+    repos: { userRepo, diaryRepo, chapterRepo, segmentRepo, worldRepo, narrativeRepo },
     snapshot() {
       return JSON.parse(JSON.stringify({
         user: userRepo.data,

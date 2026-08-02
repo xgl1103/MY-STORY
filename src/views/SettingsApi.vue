@@ -7,6 +7,11 @@
     </header>
 
     <div class="content">
+      <div v-if="USE_SERVERLESS_AI" class="hosted-ai-card">
+        <h3>My Story AI 创作服务</h3>
+        <p>当前使用项目托管的 DeepSeek 服务。访问者无需输入 API Key，密钥不会下发到浏览器。</p>
+      </div>
+      <template v-if="!USE_SERVERLESS_AI">
       <label class="field">
         <span class="field-label">模型选择</span>
         <select v-model="form.provider" @change="onProviderChange">
@@ -43,6 +48,7 @@
         <span class="field-label">Max Tokens</span>
         <input type="number" v-model.number="form.maxTokens" min="100" max="8192" step="100" />
       </label>
+      </template>
 
       <button class="test-btn" :disabled="testing" @click="testConnection">
         {{ testing ? '测试中...' : '测试连接' }}
@@ -64,6 +70,7 @@ import { UserRepository } from '@/db/repositories/UserRepository'
 import Crypto from '@/utils/Crypto'
 
 const router = useRouter()
+const USE_SERVERLESS_AI = import.meta.env.VITE_USE_SERVERLESS_AI === 'true'
 
 // 返回（history 兜底）
 function goBack() {
@@ -99,6 +106,26 @@ function onProviderChange() {
 }
 
 async function testConnection() {
+  if (USE_SERVERLESS_AI) {
+    testing.value = true
+    testResult.value = ''
+    try {
+      const res = await fetch('/api/ai', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'health' })
+      })
+      const data = await res.json().catch(() => ({}))
+      testSuccess.value = res.ok && data.configured
+      testResult.value = testSuccess.value ? 'AI 创作服务连接成功' : 'AI 创作服务尚未配置'
+    } catch (_) {
+      testSuccess.value = false
+      testResult.value = 'AI 创作服务暂时无法连接，请稍后重试'
+    } finally {
+      testing.value = false
+    }
+    return
+  }
   if (!form.value.apiKey) {
     testResult.value = '请先输入 API Key'
     testSuccess.value = false
@@ -133,10 +160,10 @@ async function save() {
   saving.value = true
   saveMsg.value = ''
   try {
-    const encrypted = form.value.apiKey ? await Crypto.encrypt(form.value.apiKey) : null
+    const encrypted = USE_SERVERLESS_AI ? null : (form.value.apiKey ? await Crypto.encrypt(form.value.apiKey) : null)
     await UserRepository.update({
-      ai_provider: form.value.provider,
-      ai_base_url: form.value.baseUrl || null,
+      ai_provider: USE_SERVERLESS_AI ? 'deepseek' : form.value.provider,
+      ai_base_url: USE_SERVERLESS_AI ? '/api/ai' : (form.value.baseUrl || null),
       api_key_encrypted: encrypted,
       ai_temperature: form.value.temperature,
       ai_max_tokens: Math.max(100, Math.min(8192, form.value.maxTokens || 2000))
@@ -154,12 +181,12 @@ async function save() {
 onMounted(async () => {
   try {
     const user = await UserRepository.get()
-    form.value.provider = user.ai_provider || 'deepseek'
-    form.value.baseUrl = user.ai_base_url || ''
+    form.value.provider = USE_SERVERLESS_AI ? 'deepseek' : (user.ai_provider || 'deepseek')
+    form.value.baseUrl = USE_SERVERLESS_AI ? '/api/ai' : (user.ai_base_url || '')
     form.value.temperature = user.ai_temperature ?? 0.8
     form.value.maxTokens = user.ai_max_tokens ?? 2000
     // decrypt 单独 try-catch：密钥损坏不影响其它字段已加载的值
-    if (user.api_key_encrypted) {
+    if (!USE_SERVERLESS_AI && user.api_key_encrypted) {
       try {
         form.value.apiKey = await Crypto.decrypt(user.api_key_encrypted) || ''
       } catch (e) {
@@ -187,6 +214,14 @@ onMounted(async () => {
 .top-bar > span { width: 40px; }
 
 .content { padding: var(--spacing-md); }
+
+.hosted-ai-card {
+  padding: var(--spacing-md); margin-bottom: var(--spacing-md);
+  border: 1px solid var(--color-border); border-radius: var(--radius-sm);
+  background: var(--color-surface);
+}
+.hosted-ai-card h3 { color: var(--color-primary); font-size: var(--font-size-base); margin-bottom: var(--spacing-xs); }
+.hosted-ai-card p { color: var(--color-text-secondary); font-size: var(--font-size-sm); line-height: 1.6; }
 
 .field { display: block; margin-bottom: var(--spacing-md); }
 .field-label { display: block; font-size: var(--font-size-sm); color: var(--color-text-secondary); margin-bottom: var(--spacing-xs); }

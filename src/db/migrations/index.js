@@ -28,6 +28,16 @@ const migrations = {
       if (!String(e.message).includes('duplicate column')) throw e
     }
   }
+  ,
+  // 版本 4：剧情图运行时状态与用户命运选择
+  4: async (db) => {
+    db.run(`CREATE TABLE IF NOT EXISTS narrative_node_state (
+      node_id TEXT PRIMARY KEY, world_id TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending',
+      selected_option_id TEXT, selected_option_desc TEXT, selected_effect TEXT,
+      selected_day INTEGER, completed_day INTEGER, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )`)
+    db.run(`CREATE INDEX IF NOT EXISTS idx_narrative_status ON narrative_node_state(status)`)
+  }
 }
 
 export async function runMigrations(db) {

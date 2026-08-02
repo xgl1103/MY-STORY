@@ -66,6 +66,14 @@ export const WorldRepository = {
     )
   },
 
+  async getAllOutlineNodes(worldId) {
+    return queryAll(
+      `SELECT node_id, node_type, trigger_day, content, prerequisites, branch_options, chapter_number
+       FROM story_outline WHERE world_id = ? ORDER BY trigger_day`,
+      [worldId]
+    )
+  },
+
   // 映射规则：从 world_settings 表读取（category='mapping'）
   // key=behavior, value=JSON{world_behavior, description}, keywords=空格分隔
   async getMappings(worldId) {

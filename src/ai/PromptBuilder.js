@@ -353,6 +353,7 @@ class PromptBuilder {
     return {
       systemPrompt: adjusted.systemPrompt,
       userPrompt: adjusted.userPrompt,
+      continuityContext: this._buildContinuityContext(params),
       tokenEstimate,
     };
   }
@@ -386,6 +387,9 @@ class PromptBuilder {
     const parts = [];
 
     parts.push(this._buildSummaryMemory(params.summaries));
+    if (params.narrativeContext?.text) {
+      parts.push(`【叙事状态图（必须遵守）】\n${params.narrativeContext.text}`)
+    }
     parts.push(this._buildRagMemory(params.ragResults));
     // 新增：动态 RAG（过去故事事件检索）
     if (params.storyRagResults && params.storyRagResults.length > 0) {
@@ -412,6 +416,17 @@ class PromptBuilder {
     parts.push(this._buildDailyCoverageChecklist(params.dailyEvents, params.coverageKeywords));
 
     return parts.filter(p => p).join('\n\n');
+  }
+
+  _buildContinuityContext(params) {
+    const parts = []
+    if (params.narrativeContext?.text) parts.push(params.narrativeContext.text)
+    parts.push(this._buildSummaryMemory(params.summaries))
+    if (params.storyRagResults?.length) parts.push(this._buildStoryRagMemory(params.storyRagResults))
+    if (params.entityMemory) parts.push(this._buildEntityMemory(params.entityMemory))
+    if (params.foreshadowing) parts.push(this._buildForeshadowing(params.foreshadowing))
+    parts.push(this._buildImmediateContext(params.immediateContext, params.currentDay))
+    return parts.filter(Boolean).join('\n\n')
   }
 
   _buildSummaryMemory(summaries) {

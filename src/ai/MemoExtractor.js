@@ -30,8 +30,10 @@ const SYSTEM_PROMPT = `你是一个故事分析助手。请从给定的故事段
 如果某项为空，输出空数组。只输出 JSON，不要其他文字。`
 
 export class MemoExtractor {
-  constructor() {
+  constructor({ entityRepo = EntityRepository, foreshadowRepo = ForeshadowingRepository } = {}) {
     this.maxContentChars = 3000  // 截取前 3000 字送给 AI，控制成本
+    this.entityRepo = entityRepo
+    this.foreshadowRepo = foreshadowRepo
   }
 
   /**
@@ -47,7 +49,7 @@ export class MemoExtractor {
     // 获取当前未回收伏笔列表，供 AI 参考检测回收
     let unresolvedList = []
     try {
-      unresolvedList = ForeshadowingRepository.getUnresolved()
+      unresolvedList = this.foreshadowRepo.getUnresolved()
     } catch (e) { /* ignore */ }
 
     if (aiContext && aiContext.adapter) {
@@ -136,7 +138,7 @@ export class MemoExtractor {
   async _persistEntities(entities, storyDay) {
     for (const e of entities) {
       if (!e.name || !e.type) continue
-      await EntityRepository.upsert({
+      await this.entityRepo.upsert({
         entity_type: e.type,
         entity_name: e.name,
         description: e.description || `在第${storyDay}天出现`,
@@ -153,11 +155,11 @@ export class MemoExtractor {
       if (!f.description) continue
       // 去重
       try {
-        const existing = ForeshadowingRepository.getUnresolved()
+        const existing = this.foreshadowRepo.getUnresolved()
           .find(x => x.description === f.description)
         if (existing) continue
       } catch (e) { /* ignore */ }
-      await ForeshadowingRepository.create({
+      await this.foreshadowRepo.create({
         planted_day: storyDay,
         planted_chapter: chapterNumber,
         description: f.description,
@@ -173,7 +175,7 @@ export class MemoExtractor {
       // 模糊匹配未回收伏笔
       const matched = this._matchForeshadowing(r.description, unresolvedList)
       if (matched) {
-        await ForeshadowingRepository.resolve(
+        await this.foreshadowRepo.resolve(
           matched.id, storyDay, chapterNumber, r.resolution || '已在故事中回收'
         )
       }
@@ -210,8 +212,8 @@ export class MemoExtractor {
     let planted = []
 
     try {
-      entities = await EntityRepository.extractFromContent(content, storyDay)
-      planted = await ForeshadowingRepository.extractFromContent(content, storyDay, chapterNumber)
+      entities = await this.entityRepo.extractFromContent(content, storyDay)
+      planted = await this.foreshadowRepo.extractFromContent(content, storyDay, chapterNumber)
     } catch (e) { /* ignore */ }
 
     // 正则模式无法检测回收，跳过

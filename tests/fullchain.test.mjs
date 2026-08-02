@@ -57,11 +57,11 @@ function createMockAIAdapter() {
       if (content.includes('请为以下章节内容生成')) {
         return { success: true, content: '本章讲述了主角林墨在塔罗会的第一次聚会上结识了其他非凡者，获得了关于城市异常波动的情报。主角尝试了第一次正式占卜，获得了关于自身命运的模糊预兆。', tokensUsed: 200 };
       }
-      if (content.includes('润色')) {
-        return { success: true, content: acceptedStory, tokensUsed: 300 };
-      }
       if (content.includes('审查')) {
         return { success: true, content: '{"passed":true,"issues":[],"severity":"low","suggestions":"","revised_content":""}', tokensUsed: 150 };
+      }
+      if (content.includes('润色')) {
+        return { success: true, content: acceptedStory, tokensUsed: 300 };
       }
       return { success: true, content: acceptedStory, tokensUsed: 500 };
     },
