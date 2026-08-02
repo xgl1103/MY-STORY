@@ -107,7 +107,7 @@ class ReviewLoop {
       apiKey,
       baseUrl,
       reviewParams,
-      1 // 格式异常或瞬时服务波动时允许一次复核重试，正常路径仍只调用一次。
+      2 // 首次可给出修订稿，第二次核对修订稿；必要时再做一次最终复核，不能把未复核的修订稿当成通过。
     )
     return { finalContent: result.content, passed: result.passed, totalRounds: result.roundsUsed, issues: result.issues }
   }
@@ -259,11 +259,18 @@ class ReviewLoop {
     }
 
     // 某些模型会在 revised_content 中写入未转义的换行，导致整个 JSON 无法解析。
-    // 只允许从这种响应中保守地挽救“明确通过”的结论；任何 false 或不明结论仍必须拒绝，
-    // 不能因格式问题把有风险的剧情放行。
+    // 可保守挽救明确结论：true 仅在明确通过时放行；false 则保留为未通过，交由
+    // StoryEngine 的定向修复流程处理，不能因格式问题把有风险的剧情放行。
     const passedMatch = content.match(/["']?passed["']?\s*[:：]\s*(true|false)/i)
     if (passedMatch?.[1]?.toLowerCase() === 'true') {
       return { passed: true, issues: [], revised_content: '' }
+    }
+    if (passedMatch?.[1]?.toLowerCase() === 'false') {
+      const issuesMatch = content.match(/["']?issues["']?\s*[:：]\s*\[([\s\S]*?)\]/i)
+      const issues = issuesMatch?.[1]
+        ? issuesMatch[1].split(/(?:",\s*"|”\s*,\s*“)/).map(item => item.replace(/^["'“\s]+|["'”\s]+$/g, '')).filter(Boolean)
+        : ['审查模型明确判定未通过，但返回格式不完整']
+      return { passed: false, issues, revised_content: '' }
     }
 
     // 极少数模型会无视 JSON 约束，只给出明确的中文结论。只接受非常窄的

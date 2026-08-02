@@ -305,7 +305,7 @@ class StoryEngine {
       const parsed1 = this._parseStoryAndReferences(draftResult.content);
 
       // 9. 步骤6：内部审查（2 轮）— 只审查正文部分
-      const reviewResult = await this.reviewLoop.run(
+      let reviewResult = await this.reviewLoop.run(
         parsed1.content,
         prompt.systemPrompt,
         aiContext.adapter,
@@ -313,6 +313,18 @@ class StoryEngine {
         aiContext.baseUrl,
         { temperature: 0.3, maxTokens: 3000, continuityContext: prompt.continuityContext, storyPlanContext: prompt.storyPlanContext }
       );
+
+      // 审查模型若给出问题（包括格式不完整但明确不通过），先用同一份计划定向
+      // 重写一次再审查，避免把模型协议波动直接暴露为用户侧生成失败。
+      if (!reviewResult.passed) {
+        const repaired = await this._repairPlanCompliance(reviewResult.finalContent || parsed1.content, reviewResult.issues, prompt.systemPrompt, aiContext, prompt.storyPlanContext)
+        if (repaired.success) {
+          reviewResult = await this.reviewLoop.run(
+            repaired.content, prompt.systemPrompt, aiContext.adapter, aiContext.apiKey, aiContext.baseUrl,
+            { temperature: 0.2, maxTokens: 3600, continuityContext: prompt.continuityContext, storyPlanContext: prompt.storyPlanContext }
+          )
+        }
+      }
 
       // 用专用方法更新 internal_review_count（P0-2 修复）
       await this.segmentRepo.updateReviewCount(segmentId, reviewResult.totalRounds);
@@ -341,7 +353,7 @@ class StoryEngine {
         { temperature: 0.2, maxTokens: 3000, continuityContext: prompt.continuityContext, storyPlanContext: prompt.storyPlanContext }
       )
       if (!postPolishReview.passed) {
-        const repaired = await this._repairPlanCompliance(finalContent, postPolishReview.issues, prompt.systemPrompt, aiContext, prompt.storyPlanContext)
+        const repaired = await this._repairPlanCompliance(postPolishReview.finalContent || finalContent, postPolishReview.issues, prompt.systemPrompt, aiContext, prompt.storyPlanContext)
         if (repaired.success) {
           postPolishReview = await this.reviewLoop.verify(
             repaired.content, prompt.systemPrompt, aiContext.adapter, aiContext.apiKey, aiContext.baseUrl,
@@ -590,7 +602,7 @@ class StoryEngine {
       const parsed2 = this._parseStoryAndReferences(draftResult.content);
 
       // 审查 — 只审查正文部分
-      const reviewResult = await this.reviewLoop.run(
+      let reviewResult = await this.reviewLoop.run(
         parsed2.content,
         prompt.systemPrompt,
         aiContext.adapter,
@@ -598,6 +610,16 @@ class StoryEngine {
         aiContext.baseUrl,
         { temperature: 0.3, maxTokens: 3000, continuityContext: prompt.continuityContext, storyPlanContext: prompt.storyPlanContext }
       );
+
+      if (!reviewResult.passed) {
+        const repaired = await this._repairPlanCompliance(reviewResult.finalContent || parsed2.content, reviewResult.issues, prompt.systemPrompt, aiContext, prompt.storyPlanContext)
+        if (repaired.success) {
+          reviewResult = await this.reviewLoop.run(
+            repaired.content, prompt.systemPrompt, aiContext.adapter, aiContext.apiKey, aiContext.baseUrl,
+            { temperature: 0.2, maxTokens: 3600, continuityContext: prompt.continuityContext, storyPlanContext: prompt.storyPlanContext }
+          )
+        }
+      }
 
       if (!reviewResult.passed) {
         await this.segmentRepo.updateStatus(segmentId, 'generate_failed');
@@ -623,7 +645,7 @@ class StoryEngine {
         { temperature: 0.2, maxTokens: 3000, continuityContext: prompt.continuityContext, storyPlanContext: prompt.storyPlanContext }
       )
       if (!postPolishReview.passed) {
-        const repaired = await this._repairPlanCompliance(finalContent, postPolishReview.issues, prompt.systemPrompt, aiContext, prompt.storyPlanContext)
+        const repaired = await this._repairPlanCompliance(postPolishReview.finalContent || finalContent, postPolishReview.issues, prompt.systemPrompt, aiContext, prompt.storyPlanContext)
         if (repaired.success) {
           postPolishReview = await this.reviewLoop.verify(
             repaired.content, prompt.systemPrompt, aiContext.adapter, aiContext.apiKey, aiContext.baseUrl,
@@ -1159,11 +1181,13 @@ ${issueList}
 ${storyPlanContext}
 
 【修复规则】
-1. 保留原文已经成立的世界观、角色、物品和有效情节。
-2. 必须修复所有列出的开场承接、日记因果、命运后果、实体状态或结束钩子问题。
-3. 每项日记事件必须落实为角色行动，并明确改变风险、资源、关系、信息、时间成本或下一步目标。
-4. 不得为修复而删除用户选择的后果，也不得用解释外的时间跳跃掩盖衔接。
-5. 正文不少于 800 字，完整结束。
+1. 原文只是素材，不是必须保留的结构；若无法逐项满足验收，请从开场起重写完整一天，不能只在原文上补一两句。
+2. 必须逐项修复上方每一个问题；尤其要把“上一日尚未完成的状态 → 今天的首个行动 → 行动带来的代价/新信息 → 结尾钩子”写成一条可读的因果链。
+3. 每项日记事件必须让角色实际行动，并明确改变风险、资源、关系、信息、时间成本或下一步目标；只提到词语不算完成。
+4. 用户选择必须带来可观察的风险、损失、暴露或新义务，不能以安全退走、无代价获得线索来替代。
+5. 不得为修复而删除既有世界观、角色、物品、有效情节或用户选择后果；不得用未经交代的时间跳跃掩盖衔接。
+6. 结尾必须直接承接当天的调查目标，并留下下一天可执行的未完成行动。
+7. 正文不少于 800 字，完整结束。
 
 【待修复正文】
 ${content}`
