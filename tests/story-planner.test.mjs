@@ -51,6 +51,14 @@ const planned = await planner.plan(context, {
 assert.equal(planned.source, 'ai')
 assert.equal(planned.plan.openingBridge.firstSceneAction, '从机关启动开始')
 
+let retryCalls = 0
+const retried = await planner.plan(context, {
+  adapter: { async chat() { retryCalls++; return { success: true, content: retryCalls === 1 ? '{"dayNumber":2}' : JSON.stringify(validPlan) } } },
+  apiKey: 'test', baseUrl: null,
+})
+assert.equal(retried.source, 'ai_retry', '不完整计划应触发一次修复重试')
+assert.equal(retryCalls, 2, '格式修复最多追加一次调用')
+
 const fallback = await planner.plan(context, {
   adapter: { async chat() { return { success: true, content: 'not json' } } },
   apiKey: 'test', baseUrl: null,

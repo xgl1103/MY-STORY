@@ -26,27 +26,46 @@ const safeJson = value => JSON.stringify(value ?? null).slice(0, 10000)
 
 export class StoryPlanner {
   async plan(context, aiContext) {
-    const validationContext = { dayNumber: context.dayNumber, dailyEvents: context.dailyEvents, choices: context.choices }
+    const validationContext = { dayNumber: context.dayNumber, dailyEvents: context.dailyEvents, choices: context.choices, previousHandoff: context.previousHandoff }
     if (aiContext?.adapter) {
       try {
-        const response = await aiContext.adapter.chat({
-          apiKey: aiContext.apiKey,
-          baseUrl: aiContext.baseUrl,
-          systemPrompt: SYSTEM_PROMPT,
-          userPrompt: this._buildPrompt(context),
-          temperature: 0.2,
-          maxTokens: 1400,
-        })
-        if (!response?.success) throw new Error(response?.error || '规划调用失败')
-        const parsed = this._parse(response.content)
-        const checked = StoryPlanValidator.validate(parsed, validationContext)
+        const first = await this._request(context, aiContext)
+        const checked = this._validateResponse(first, validationContext)
         if (checked.valid) return { plan: checked.normalizedPlan, source: 'ai', validationErrors: [] }
-        return { plan: this.createFallback(context), source: 'fallback', validationErrors: checked.errors }
+        // 只在格式或约束不合格时增加一次短修复调用；正常路径始终只有一次 Planner 调用。
+        const repair = await this._request(context, aiContext, checked.errors)
+        const repaired = this._validateResponse(repair, validationContext)
+        if (repaired.valid) return { plan: repaired.normalizedPlan, source: 'ai_retry', validationErrors: checked.errors }
+        return { plan: this.createFallback(context), source: 'fallback', validationErrors: [...checked.errors, ...repaired.errors] }
       } catch (error) {
         return { plan: this.createFallback(context), source: 'fallback', validationErrors: [{ code: 'P000', path: '', message: error.message || '规划器调用失败' }] }
       }
     }
     return { plan: this.createFallback(context), source: 'fallback', validationErrors: [{ code: 'P000', path: '', message: '无可用 AI 规划器' }] }
+  }
+
+  async _request(context, aiContext, repairErrors = null) {
+    const repairInstruction = repairErrors?.length
+      ? `\n\n【上一次计划未通过本地校验】\n${repairErrors.map(item => `- ${item.code}：${item.message}`).join('\n')}\n请修正后重新输出完整 JSON，不要解释。`
+      : ''
+    const response = await aiContext.adapter.chat({
+      apiKey: aiContext.apiKey,
+      baseUrl: aiContext.baseUrl,
+      systemPrompt: SYSTEM_PROMPT,
+      userPrompt: this._buildPrompt(context) + repairInstruction,
+      temperature: 0.2,
+      maxTokens: 1400,
+    })
+    if (!response?.success) throw new Error(response?.error || '规划调用失败')
+    return response.content
+  }
+
+  _validateResponse(content, validationContext) {
+    try {
+      return StoryPlanValidator.validate(this._parse(content), validationContext)
+    } catch (error) {
+      return { valid: false, errors: [{ code: 'P000', path: '', message: error.message || '规划 JSON 解析失败' }], normalizedPlan: null }
+    }
   }
 
   createFallback(context) {

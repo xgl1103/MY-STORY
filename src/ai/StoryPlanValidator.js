@@ -21,10 +21,25 @@ export class StoryPlanValidator {
     if (events.length && (causality.length < events.length || causality.some(item => !text(item?.diaryEvent) || !text(item?.worldAction) || !text(item?.storyConsequence)))) {
       errors.push({ code: 'P005', path: 'diaryCausality', message: '核心日记事件未全部形成行动与后果' })
     }
+    for (const event of events) {
+      const matched = causality.some(item => {
+        const stated = text(item?.diaryEvent)
+        return stated.includes(event) || event.includes(stated)
+      })
+      if (!matched) errors.push({ code: 'P005', path: 'diaryCausality', message: `日记事件未被计划承接：${event}` })
+    }
 
     const selectedChoices = asArray(context.choices).filter(item => text(item?.description) || text(item?.effect))
     if (selectedChoices.length && (!plan.choiceConsequence || !text(plan.choiceConsequence.choice) || !text(plan.choiceConsequence.consequence))) {
       errors.push({ code: 'P006', path: 'choiceConsequence', message: '已选命运没有具体后果' })
+    }
+    if (selectedChoices.length && plan.choiceConsequence) {
+      const expected = selectedChoices[selectedChoices.length - 1]
+      const choiceText = text(plan.choiceConsequence.choice)
+      const expectedText = text(expected.description) || text(expected.effect)
+      if (!choiceText.includes(expectedText) && !expectedText.includes(choiceText)) {
+        errors.push({ code: 'P006', path: 'choiceConsequence.choice', message: '计划中的命运选择与用户实际选择不一致' })
+      }
     }
 
     const beats = asArray(plan.beats)
@@ -32,7 +47,14 @@ export class StoryPlanValidator {
       errors.push({ code: 'P007', path: 'beats', message: '剧情节拍必须为连续的 3～5 条行动与状态变化' })
     }
     if (!text(plan.endingTarget?.state)) errors.push({ code: 'P008', path: 'endingTarget', message: '缺少当天结束状态' })
-    if (!asArray(plan.forbiddenChanges).length) errors.push({ code: 'P009', path: 'forbiddenChanges', message: '缺少禁止改变的事实' })
+    const forbidden = asArray(plan.forbiddenChanges).map(text).filter(Boolean)
+    if (!forbidden.length) errors.push({ code: 'P009', path: 'forbiddenChanges', message: '缺少禁止改变的事实' })
+    const previousForbidden = asArray(context.previousHandoff?.prohibitedChanges).map(text).filter(Boolean)
+    for (const prior of previousForbidden) {
+      if (!forbidden.some(item => item.includes(prior) || prior.includes(item))) {
+        errors.push({ code: 'P009', path: 'forbiddenChanges', message: `未继承上一日禁止项：${prior}` })
+      }
+    }
 
     return { valid: errors.length === 0, errors, normalizedPlan: errors.length ? null : this.normalize(plan) }
   }
