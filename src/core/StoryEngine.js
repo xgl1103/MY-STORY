@@ -39,9 +39,12 @@ import SummaryMemory from '../memory/SummaryMemory.js';
 import RAGRetriever from '../memory/RAGRetriever.js';
 import { StoryRAGRetriever } from '../memory/StoryRAGRetriever.js';
 import { MemoExtractor } from '../ai/MemoExtractor.js';
+import StoryPlanner from '../ai/StoryPlanner.js';
 import NarrativeGraph from './NarrativeGraph.js';
 import { EntityRepository } from '../db/repositories/EntityRepository.js';
 import { ForeshadowingRepository } from '../db/repositories/ForeshadowingRepository.js';
+import { DayHandoffRepository } from '../db/repositories/DayHandoffRepository.js';
+import { StoryPlanRepository } from '../db/repositories/StoryPlanRepository.js';
 import Crypto from '../utils/Crypto.js';
 
 const USE_SERVERLESS_AI = import.meta.env?.VITE_USE_SERVERLESS_AI === 'true';
@@ -59,6 +62,8 @@ class StoryEngine {
     this.worldRepo = repos.worldRepo;
     this.entityRepo = repos.entityRepo || EntityRepository;
     this.foreshadowRepo = repos.foreshadowRepo || ForeshadowingRepository;
+    this.handoffRepo = repos.handoffRepo || DayHandoffRepository;
+    this.storyPlanRepo = repos.storyPlanRepo || StoryPlanRepository;
 
     // 子组件
     this.diaryParser = new DiaryParser();
@@ -82,7 +87,9 @@ class StoryEngine {
     this.memoExtractor = new MemoExtractor({
       entityRepo: this.entityRepo,
       foreshadowRepo: this.foreshadowRepo,
+      handoffRepo: this.handoffRepo,
     });
+    this.storyPlanner = new StoryPlanner();
     this.narrativeGraph = new NarrativeGraph(this.worldRepo, repos.narrativeRepo);
 
     // 并发控制
@@ -228,6 +235,20 @@ class StoryEngine {
         ? narrativeContext.choices.map(item => item.effect || item.description).join('；')
         : '（尚无已选择的分支。）';
 
+      // 5.5：在 Writer 之前将多层记忆收束为一份可审计的当天因果计划。
+      const storyPlanRecord = await this._getOrCreateStoryPlan({
+        segmentId,
+        dayNumber,
+        aiContext,
+        parsed,
+        mappingDesc,
+        narrativeContext,
+        entityMemory,
+        foreshadowing,
+        chapterPurpose: this._getChapterPurpose(chapter.chapter_number),
+        encounter,
+      })
+
       // 6. 状态置为 generating（S-1 状态机）
       await this.segmentRepo.updateStatus(segmentId, 'generating');
 
@@ -251,6 +272,7 @@ class StoryEngine {
         dailyEvents: parsed.events,
         coverageKeywords,
         narrativeContext,
+        storyPlan: storyPlanRecord.plan,
         mappingDesc,
         encounterTitle: encounter ? encounter.title : null,
         encounterContent: encounter ? encounter.content : null,
@@ -289,7 +311,7 @@ class StoryEngine {
         aiContext.adapter,
         aiContext.apiKey,
         aiContext.baseUrl,
-        { temperature: 0.3, maxTokens: 3000, continuityContext: prompt.continuityContext }
+        { temperature: 0.3, maxTokens: 3000, continuityContext: prompt.continuityContext, storyPlanContext: prompt.storyPlanContext }
       );
 
       // 用专用方法更新 internal_review_count（P0-2 修复）
@@ -308,7 +330,7 @@ class StoryEngine {
       // 10. 步骤7：润色
       let finalContent = reviewResult.finalContent;
       const polishResult = await this._polish(
-        finalContent, prompt.systemPrompt, aiContext, user, prompt.continuityContext
+        finalContent, prompt.systemPrompt, aiContext, user, prompt.continuityContext, prompt.storyPlanContext
       );
       if (polishResult.success && polishResult.content) {
         finalContent = polishResult.content;
@@ -316,7 +338,7 @@ class StoryEngine {
 
       const postPolishReview = await this.reviewLoop.verify(
         finalContent, prompt.systemPrompt, aiContext.adapter, aiContext.apiKey, aiContext.baseUrl,
-        { temperature: 0.2, maxTokens: 3000, continuityContext: prompt.continuityContext }
+        { temperature: 0.2, maxTokens: 3000, continuityContext: prompt.continuityContext, storyPlanContext: prompt.storyPlanContext }
       )
       if (!postPolishReview.passed) {
         await this.segmentRepo.updateStatus(segmentId, 'generate_failed')
@@ -349,6 +371,7 @@ class StoryEngine {
         references: parsed1.references,
         reviewCount: reviewResult.totalRounds,
       })
+      await this.storyPlanRepo.markUsed(storyPlanRecord.id)
 
       // 注意：天数递增不在此方法执行，在 finalize 中执行（S-2 修复）
 
@@ -489,6 +512,19 @@ class StoryEngine {
       } catch (e) { /* ignore */ }
 
       const outlineContent = narrativeContext.activeNode?.content || '（根据用户日记与已发生剧情自然推进。）';
+      const storyPlanRecord = await this._getOrCreateStoryPlan({
+        segmentId,
+        dayNumber: segment.day_number,
+        aiContext,
+        parsed,
+        mappingDesc,
+        narrativeContext,
+        entityMemory,
+        foreshadowing,
+        chapterPurpose: this._getChapterPurpose(chapter ? chapter.chapter_number : 0),
+        encounter: null,
+        reuseExisting: true,
+      })
 
       // Prompt 拼装（isRegenerate=true，含五层记忆）
       const prompt = this.promptBuilder.build({
@@ -512,6 +548,7 @@ class StoryEngine {
         dailyEvents: parsed.events,
         coverageKeywords,
         narrativeContext,
+        storyPlan: storyPlanRecord.plan,
         mappingDesc,
         encounterTitle: null,
         encounterContent: null,
@@ -550,7 +587,7 @@ class StoryEngine {
         aiContext.adapter,
         aiContext.apiKey,
         aiContext.baseUrl,
-        { temperature: 0.3, maxTokens: 3000, continuityContext: prompt.continuityContext }
+        { temperature: 0.3, maxTokens: 3000, continuityContext: prompt.continuityContext, storyPlanContext: prompt.storyPlanContext }
       );
 
       if (!reviewResult.passed) {
@@ -566,7 +603,7 @@ class StoryEngine {
       // 润色
       let finalContent = reviewResult.finalContent;
       const polishResult = await this._polish(
-        finalContent, prompt.systemPrompt, aiContext, user, prompt.continuityContext
+        finalContent, prompt.systemPrompt, aiContext, user, prompt.continuityContext, prompt.storyPlanContext
       );
       if (polishResult.success && polishResult.content) {
         finalContent = polishResult.content;
@@ -574,7 +611,7 @@ class StoryEngine {
 
       const postPolishReview = await this.reviewLoop.verify(
         finalContent, prompt.systemPrompt, aiContext.adapter, aiContext.apiKey, aiContext.baseUrl,
-        { temperature: 0.2, maxTokens: 3000, continuityContext: prompt.continuityContext }
+        { temperature: 0.2, maxTokens: 3000, continuityContext: prompt.continuityContext, storyPlanContext: prompt.storyPlanContext }
       )
       if (!postPolishReview.passed) {
         await this.segmentRepo.updateStatus(segmentId, 'generate_failed')
@@ -609,6 +646,7 @@ class StoryEngine {
         reviewCount: reviewResult.totalRounds,
         incrementRevision: true,
       })
+      await this.storyPlanRepo.markUsed(storyPlanRecord.id)
 
       return {
         success: true,
@@ -675,43 +713,8 @@ class StoryEngine {
 
       const dayCompleted = segment.day_number;
 
-      // 定稿后提取实体和伏笔（AI 模式优先，失败降级正则）
-      try {
-        if (segment.content) {
-          // 构建 AI 上下文（如果用户配置了 API Key）
-          let aiContext = null
-          try {
-            const user = await this.userRepo.get()
-            if (user?.ai_provider && (USE_SERVERLESS_AI || user?.api_key_encrypted)) {
-              aiContext = await this._getAIContext(user)
-            }
-          } catch (e) { /* 使用降级模式 */ }
-
-          // 4.1 修复：segment 没有 chapter_number 列，通过 chapter_id 查询章节
-          let chapterNumberForExtract = 0
-          if (segment.chapter_id) {
-            try {
-              const chapter = await this.chapterRepo.getById(segment.chapter_id)
-              chapterNumberForExtract = chapter?.chapter_number || 0
-            } catch (e) { /* ignore */ }
-          }
-          await this.memoExtractor.extract(
-            segment.content,
-            dayCompleted,
-            chapterNumberForExtract,
-            aiContext
-          )
-        }
-      } catch (e) {
-        console.warn('[StoryEngine] 记忆提取失败:', e)
-      }
-
-      // 定稿后推进剧情图：只有已选定的分支才可成为后续节点的前置条件。
-      try {
-        await this.narrativeGraph.completeNodesForDay(dayCompleted, await this.userRepo.get())
-      } catch (e) {
-        console.warn('[StoryEngine] 剧情图状态更新失败:', e.message)
-      }
+      // 定稿后统一刷新实体、伏笔、日终交接单与剧情图。saveEdit 复用同一路径。
+      await this._refreshFinalizedMemory(segment, segment.content)
 
       // S-2 修复：天数递增在此执行
       await this.progressTracker.updateProgress(dayCompleted);
@@ -800,6 +803,9 @@ class StoryEngine {
       // R3 修复：markFinalized 移到所有操作之后（同 finalize 修复逻辑）
       const dayCompleted = segment.day_number;
 
+      // 用户编辑后的正文是新的事实来源，必须覆盖旧记忆和交接单。
+      await this._refreshFinalizedMemory({ ...segment, content }, content)
+
       // S-4 修复：调用进度更新+章节边界检查
       await this.progressTracker.updateProgress(dayCompleted);
 
@@ -862,6 +868,91 @@ class StoryEngine {
   }
 
   // ===== 私有辅助方法 =====
+
+  async _getOrCreateStoryPlan({ segmentId, dayNumber, aiContext, parsed, mappingDesc, narrativeContext, entityMemory, foreshadowing, chapterPurpose, encounter, reuseExisting = false }) {
+    if (reuseExisting) {
+      const existing = await this.storyPlanRepo.getLatestForSegment(segmentId)
+      if (existing?.plan) return existing
+    }
+    const previousHandoff = await this.handoffRepo.getLatestBefore(dayNumber)
+    const choices = narrativeContext?.choices || []
+    const inputFingerprint = this._fingerprint({
+      dayNumber,
+      previousHandoffHash: previousHandoff?.source_content_hash || '',
+      events: parsed?.events || [],
+      mappingDesc: mappingDesc || '',
+      choices,
+      node: narrativeContext?.activeNode?.node_id || '',
+      encounter: encounter?.title || '',
+    })
+    const reusable = await this.storyPlanRepo.getReusable(segmentId, inputFingerprint)
+    if (reusable?.plan) return reusable
+
+    const plannerResult = await this.storyPlanner.plan({
+      dayNumber,
+      previousHandoff,
+      dailyEvents: parsed?.events || [],
+      mappingDesc,
+      narrativeText: narrativeContext?.text || '',
+      choices,
+      entityMemory,
+      foreshadowing,
+      chapterPurpose,
+      encounter,
+    }, aiContext)
+    return this.storyPlanRepo.upsert({
+      dayNumber,
+      segmentId,
+      previousHandoffDay: previousHandoff?.day_number ?? null,
+      plan: plannerResult.plan,
+      source: plannerResult.source,
+      inputFingerprint,
+      validationErrors: plannerResult.validationErrors,
+    })
+  }
+
+  async _refreshFinalizedMemory(segment, content) {
+    const dayCompleted = segment.day_number
+    let user = null
+    try { user = await this.userRepo.get() } catch (_) { /* keep fallback */ }
+    try {
+      let aiContext = null
+      if (user?.ai_provider && (USE_SERVERLESS_AI || user?.api_key_encrypted)) {
+        try { aiContext = await this._getAIContext(user) } catch (_) { /* fallback extraction */ }
+      }
+      let chapterNumber = 0
+      if (segment.chapter_id) {
+        try { chapterNumber = (await this.chapterRepo.getById(segment.chapter_id))?.chapter_number || 0 } catch (_) { /* no chapter */ }
+      }
+      let choiceContext = null
+      try {
+        const state = await this.narrativeGraph.getGenerationContext({ user, dayNumber: dayCompleted })
+        choiceContext = state.choices?.slice(-1)[0] || null
+      } catch (_) { /* no choice available */ }
+      await this.memoExtractor.extract(content, dayCompleted, chapterNumber, aiContext, {
+        segmentId: segment.id,
+        choiceContext,
+      })
+    } catch (error) {
+      // 记忆提取有自身 fallback；这里最后兜底，不能丢弃用户已确认的正文。
+      console.warn('[StoryEngine] 定稿记忆刷新失败:', error.message)
+    }
+    try {
+      if (user) await this.narrativeGraph.completeNodesForDay(dayCompleted, user)
+    } catch (error) {
+      console.warn('[StoryEngine] 剧情图状态更新失败:', error.message)
+    }
+  }
+
+  _fingerprint(value) {
+    const source = JSON.stringify(value)
+    let hash = 2166136261
+    for (let index = 0; index < source.length; index++) {
+      hash ^= source.charCodeAt(index)
+      hash = Math.imul(hash, 16777619)
+    }
+    return `plan-${(hash >>> 0).toString(16)}-${source.length}`
+  }
 
   /**
    * 构建 AI 调用上下文
@@ -1009,7 +1100,7 @@ ${content}
    * 润色步骤（步骤 7）
    * @private
    */
-  async _polish(content, systemPrompt, aiContext, user, continuityContext = '') {
+  async _polish(content, systemPrompt, aiContext, user, continuityContext = '', storyPlanContext = '') {
     try {
       const polishResult = await ErrorHandler.callWithRetry(async () => {
         return aiContext.adapter.chat({
@@ -1017,7 +1108,7 @@ ${content}
           baseUrl: aiContext.baseUrl,
           systemPrompt,
           // 使用 split-join 替换防止 $ 注入
-          userPrompt: `${PromptBuilder.POLISH_PROMPT.split('{content}').join(content)}\n\n【不得违反的既有叙事事实】\n${continuityContext}`,
+          userPrompt: `${PromptBuilder.POLISH_PROMPT.split('{content}').join(content)}\n\n【不得违反的既有叙事事实】\n${continuityContext}\n\n【不得破坏的当天剧情计划】\n${storyPlanContext}`,
           temperature: 0.7,
           maxTokens: user.ai_max_tokens || 2000,
         });

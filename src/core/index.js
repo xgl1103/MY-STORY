@@ -32,7 +32,7 @@ export async function initStoryEngine() {
       const RealEngine = module.default
 
       // 动态加载真实 Repository
-      const [userRepoMod, diaryRepoMod, chapterRepoMod, segmentRepoMod, worldRepoMod, narrativeRepoMod, entityRepoMod, foreshadowRepoMod] = await Promise.all([
+      const [userRepoMod, diaryRepoMod, chapterRepoMod, segmentRepoMod, worldRepoMod, narrativeRepoMod, entityRepoMod, foreshadowRepoMod, handoffRepoMod, storyPlanRepoMod] = await Promise.all([
         import(/* @vite-ignore */ '/src/db/repositories/UserRepository.js'),
         import(/* @vite-ignore */ '/src/db/repositories/DiaryRepository.js'),
         import(/* @vite-ignore */ '/src/db/repositories/ChapterRepository.js'),
@@ -41,6 +41,8 @@ export async function initStoryEngine() {
         import(/* @vite-ignore */ '/src/db/repositories/NarrativeStateRepository.js'),
         import(/* @vite-ignore */ '/src/db/repositories/EntityRepository.js'),
         import(/* @vite-ignore */ '/src/db/repositories/ForeshadowingRepository.js'),
+        import(/* @vite-ignore */ '/src/db/repositories/DayHandoffRepository.js'),
+        import(/* @vite-ignore */ '/src/db/repositories/StoryPlanRepository.js'),
       ])
 
       instance = new RealEngine({
@@ -52,6 +54,8 @@ export async function initStoryEngine() {
         narrativeRepo: narrativeRepoMod.NarrativeStateRepository,
         entityRepo: entityRepoMod.EntityRepository,
         foreshadowRepo: foreshadowRepoMod.ForeshadowingRepository,
+        handoffRepo: handoffRepoMod.DayHandoffRepository,
+        storyPlanRepo: storyPlanRepoMod.StoryPlanRepository,
       })
     } catch (e) {
       console.error('无法加载真实 StoryEngine，回退到 Mock:', e)

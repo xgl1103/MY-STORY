@@ -12,13 +12,18 @@ export async function exportData() {
   }
 
   return {
-    version: '1.0',
+    version: '1.1',
     export_date: new Date().toISOString(),
     user_settings,
     diary_entries: queryAll('SELECT * FROM diary_entries ORDER BY day_number'),
     chapters: queryAll('SELECT * FROM chapters ORDER BY chapter_number'),
     story_segments: queryAll('SELECT * FROM story_segments ORDER BY day_number'),
-    encounter_log: queryAll('SELECT * FROM encounter_log ORDER BY day_number')
+    encounter_log: queryAll('SELECT * FROM encounter_log ORDER BY day_number'),
+    narrative_node_state: queryAll('SELECT * FROM narrative_node_state ORDER BY node_id'),
+    entity_state: queryAll('SELECT * FROM entity_state ORDER BY id'),
+    foreshadowing: queryAll('SELECT * FROM foreshadowing ORDER BY id'),
+    day_handoff: queryAll('SELECT * FROM day_handoff ORDER BY day_number'),
+    story_plan: queryAll('SELECT * FROM story_plan ORDER BY id')
   }
 }
 
@@ -31,10 +36,15 @@ export async function importData(data) {
 
   runTransaction(() => {
     // 清空用户数据表（保留预置配置表 world_settings/encounter_library/story_outline）
+    execute('DELETE FROM story_plan')
+    execute('DELETE FROM day_handoff')
     execute('DELETE FROM story_segments')
     execute('DELETE FROM chapters')
     execute('DELETE FROM diary_entries')
     execute('DELETE FROM encounter_log')
+    execute('DELETE FROM narrative_node_state')
+    execute('DELETE FROM entity_state')
+    execute('DELETE FROM foreshadowing')
     execute('DELETE FROM user_settings')
 
     // 重新插入 user_settings（导入数据不含 api_key_encrypted，保留原 Key）
@@ -94,6 +104,27 @@ export async function importData(data) {
           [e.id, e.day_number, e.encounter_id, e.content, e.created_at]
         )
       }
+    }
+
+    for (const row of data.narrative_node_state || []) {
+      execute(`INSERT INTO narrative_node_state (node_id, world_id, status, selected_option_id, selected_option_desc, selected_effect, selected_day, completed_day, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, [row.node_id, row.world_id, row.status, row.selected_option_id, row.selected_option_desc, row.selected_effect, row.selected_day, row.completed_day, row.updated_at])
+    }
+    for (const row of data.entity_state || []) {
+      execute(`INSERT INTO entity_state (id, entity_type, entity_name, description, status, first_day, last_day, relations, notes, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, [row.id, row.entity_type, row.entity_name, row.description, row.status, row.first_day, row.last_day, row.relations, row.notes, row.updated_at])
+    }
+    for (const row of data.foreshadowing || []) {
+      execute(`INSERT INTO foreshadowing (id, planted_day, planted_chapter, description, priority, status, resolved_day, resolved_chapter, resolution, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, [row.id, row.planted_day, row.planted_chapter, row.description, row.priority, row.status, row.resolved_day, row.resolved_chapter, row.resolution, row.created_at])
+    }
+    for (const row of data.day_handoff || []) {
+      execute(`INSERT INTO day_handoff (id, day_number, segment_id, schema_version, ending_scene_json, character_state_json, hard_facts_json, active_goal, unfinished_action, immediate_next_action, unresolved_threads_json, prohibited_changes_json, choice_context_json, source, source_content_hash, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, [row.id, row.day_number, row.segment_id, row.schema_version, row.ending_scene_json, row.character_state_json, row.hard_facts_json, row.active_goal, row.unfinished_action, row.immediate_next_action, row.unresolved_threads_json, row.prohibited_changes_json, row.choice_context_json, row.source, row.source_content_hash, row.created_at, row.updated_at])
+    }
+    for (const row of data.story_plan || []) {
+      execute(`INSERT INTO story_plan (id, day_number, segment_id, previous_handoff_day, schema_version, plan_json, status, source, input_fingerprint, validation_errors_json, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, [row.id, row.day_number, row.segment_id, row.previous_handoff_day, row.schema_version, row.plan_json, row.status, row.source, row.input_fingerprint, row.validation_errors_json, row.created_at, row.updated_at])
     }
   }) // 事务结束：全部成功则 COMMIT，任一失败则 ROLLBACK
 

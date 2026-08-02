@@ -138,6 +138,9 @@ class ReviewLoop {
       if (reviewParams.continuityContext) {
         prompt += `\n\n【必须核对的既有叙事事实】\n${reviewParams.continuityContext}`
       }
+      if (reviewParams.storyPlanContext) {
+        prompt += `\n\n【必须逐项验收的当天剧情计划】\n${reviewParams.storyPlanContext}\n\n若违反开场承接、日记因果、命运后果或禁止改变，请在 issues 中使用 C001～C007 标记并提供修订稿。`
+      }
 
       // 调用 AI 审查（复用故事生成的 systemPrompt 保持世界观上下文）
       // 用 callWithRetry 包裹，网络错误时自动重试

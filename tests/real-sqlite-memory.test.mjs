@@ -13,12 +13,14 @@ globalThis.localStorage = {
 }
 globalThis.window = { initSqlJs: options => initSqlJs({ ...options, locateFile: () => wasmPath }) }
 
-const [{ initDatabase }, { default: StoryEngine }, { NarrativeStateRepository }, { EntityRepository }, { ForeshadowingRepository }, { default: MockUserRepository }, { default: MockDiaryRepository }, { default: MockChapterRepository }, { default: MockSegmentRepository }, { default: MockWorldRepository }] = await Promise.all([
+const [{ initDatabase, queryAll }, { default: StoryEngine }, { NarrativeStateRepository }, { EntityRepository }, { ForeshadowingRepository }, { DayHandoffRepository }, { StoryPlanRepository }, { default: MockUserRepository }, { default: MockDiaryRepository }, { default: MockChapterRepository }, { default: MockSegmentRepository }, { default: MockWorldRepository }] = await Promise.all([
   import('../src/db/Database.js'),
   import('../src/core/StoryEngine.js'),
   import('../src/db/repositories/NarrativeStateRepository.js'),
   import('../src/db/repositories/EntityRepository.js'),
   import('../src/db/repositories/ForeshadowingRepository.js'),
+  import('../src/db/repositories/DayHandoffRepository.js'),
+  import('../src/db/repositories/StoryPlanRepository.js'),
   import('../mock/MockUserRepository.js'),
   import('../mock/MockDiaryRepository.js'),
   import('../mock/MockChapterRepository.js'),
@@ -98,7 +100,10 @@ for (let day = 1; day <= 7; day++) {
 const selected = NarrativeStateRepository.get('day3_choice')
 const watch = EntityRepository.getByName('item', '铜制怀表')
 const foreshadows = ForeshadowingRepository.getUnresolved()
-const resolved = (await import('../src/db/Database.js')).queryAll('SELECT * FROM foreshadowing WHERE status = ?', ['resolved'])
+const resolved = queryAll('SELECT * FROM foreshadowing WHERE status = ?', ['resolved'])
+const day7Handoff = await DayHandoffRepository.getByDay(7)
+const persistedPlans = queryAll('SELECT * FROM story_plan ORDER BY day_number')
+const actualWriterPrompts = writerPrompts.filter(prompt => prompt.includes('【生成要求】'))
 
 assert.equal(selected.selected_option_id, 'bold', '选择必须写入真实 SQLite')
 assert.equal(selected.status, 'completed', '已选择节点应在定稿后完成')
@@ -107,11 +112,19 @@ assert.equal(watch.last_day, 7, '实体记忆必须在后续天数持续更新')
 assert.equal(foreshadows.length, 0, '第6天回收后不应残留未回收伏笔')
 assert.equal(resolved.length, 1, '伏笔必须在真实 SQLite 中标记为已回收')
 assert.ok(writerPrompts.slice(1).some(prompt => prompt.includes('铜制怀表')), '第2天及后续 Writer Prompt 必须读到实体/伏笔记忆')
+assert.ok(day7Handoff, '每个定稿日必须写入真实 SQLite 日终交接单')
+assert.equal(day7Handoff.segment_id > 0, true, '交接单必须关联段落')
+assert.equal(persistedPlans.length, 7, '每日生成必须保存一份剧情计划')
+assert.equal(actualWriterPrompts.length, 7, '应捕获 7 次 Writer 调用')
+assert.ok(actualWriterPrompts.every(prompt => prompt.includes('当天剧情执行计划')), '每次 Writer 必须收到当天剧情计划')
+assert.equal((await StoryPlanRepository.getReusable(persistedPlans[0].segment_id, persistedPlans[0].input_fingerprint))?.status, 'used', '成功草稿计划应标记为 used')
 
 console.log('REAL_SQLITE_MEMORY_PASS')
 console.log(JSON.stringify({
   narrativeSelection: selected.selected_option_id,
   entity: { name: watch.entity_name, lastDay: watch.last_day },
   resolvedForeshadowing: resolved[0].resolution,
-  writerPromptCount: writerPrompts.length,
+  handoffDay: day7Handoff.day_number,
+  plannedDays: persistedPlans.length,
+  writerPromptCount: actualWriterPrompts.length,
 }, null, 2))

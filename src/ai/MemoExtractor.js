@@ -1,8 +1,9 @@
 // src/ai/MemoExtractor.js
-// 记忆提取器：在章节定稿后，用一次轻量 AI 调用完成三件事：
+// 记忆提取器：在章节定稿后，用一次轻量 AI 调用完成四件事：
 //   1. 提取/更新实体状态（角色/物品/地点）
 //   2. 检测新埋设的伏笔
 //   3. 检测本段是否回收了既有伏笔
+//   4. 输出下一日必须承接的日终交接单
 //
 // 从第一性原理：正则提取噪音大、无语义理解；AI 提取精确但需控制成本。
 // 策略：一次调用同时完成三项任务，输出结构化 JSON，Token 消耗约 800-1200。
@@ -10,6 +11,7 @@
 
 import { EntityRepository } from '../db/repositories/EntityRepository.js'
 import { ForeshadowingRepository } from '../db/repositories/ForeshadowingRepository.js'
+import { DayHandoffRepository } from '../db/repositories/DayHandoffRepository.js'
 
 const SYSTEM_PROMPT = `你是一个故事分析助手。请从给定的故事段落中提取以下信息，以 JSON 格式输出：
 
@@ -27,13 +29,22 @@ const SYSTEM_PROMPT = `你是一个故事分析助手。请从给定的故事段
    - description: 被回收的伏笔内容（尽量与埋设时的描述匹配）
    - resolution: 回收方式简述
 
+4. day_handoff：给下一天 Writer 的交接单，必须基于本段结尾，而非整段泛泛摘要：
+   - endingScene: { time, location, presentCharacters, physicalState }
+   - characterStates: [{ name, emotion, possessions, relationshipChanges }]
+   - hardFacts: 不得无解释改变的具体事实数组
+   - activeGoal, unfinishedAction, immediateNextAction
+   - unresolvedThreads: [{ description, priority }]
+   - prohibitedChanges: 下一天不得擅自改写的事项数组
+
 如果某项为空，输出空数组。只输出 JSON，不要其他文字。`
 
 export class MemoExtractor {
-  constructor({ entityRepo = EntityRepository, foreshadowRepo = ForeshadowingRepository } = {}) {
-    this.maxContentChars = 3000  // 截取前 3000 字送给 AI，控制成本
+  constructor({ entityRepo = EntityRepository, foreshadowRepo = ForeshadowingRepository, handoffRepo = DayHandoffRepository } = {}) {
+    this.maxContentChars = 3600
     this.entityRepo = entityRepo
     this.foreshadowRepo = foreshadowRepo
+    this.handoffRepo = handoffRepo
   }
 
   /**
@@ -43,8 +54,11 @@ export class MemoExtractor {
    * @param {number} chapterNumber - 章节号
    * @param {Object|null} aiContext - AI 上下文 { adapter, apiKey, baseUrl }，null 则用降级模式
    */
-  async extract(content, storyDay, chapterNumber, aiContext = null) {
-    if (!content || content.trim().length < 20) return { entities: [], planted: [], resolved: [] }
+  async extract(content, storyDay, chapterNumber, aiContext = null, handoffContext = {}) {
+    if (!content || content.trim().length < 20) {
+      const handoff = await this._persistHandoff(null, content || '', storyDay, handoffContext, [], 'fallback')
+      return { entities: [], planted: [], resolved: [], handoff }
+    }
 
     // 获取当前未回收伏笔列表，供 AI 参考检测回收
     let unresolvedList = []
@@ -54,21 +68,19 @@ export class MemoExtractor {
 
     if (aiContext && aiContext.adapter) {
       try {
-        return await this._extractWithAI(content, storyDay, chapterNumber, aiContext, unresolvedList)
+        return await this._extractWithAI(content, storyDay, chapterNumber, aiContext, unresolvedList, handoffContext)
       } catch (e) {
         console.warn('[MemoExtractor] AI 提取失败，降级到正则模式:', e.message)
       }
     }
 
     // 降级：正则提取
-    return this._extractWithRegex(content, storyDay, chapterNumber)
+    return this._extractWithRegex(content, storyDay, chapterNumber, unresolvedList, handoffContext)
   }
 
   // AI 提取模式
-  async _extractWithAI(content, storyDay, chapterNumber, aiContext, unresolvedList) {
-    const truncated = content.length > this.maxContentChars
-      ? content.substring(0, this.maxContentChars) + '...'
-      : content
+  async _extractWithAI(content, storyDay, chapterNumber, aiContext, unresolvedList, handoffContext) {
+    const truncated = this._prepareContentForExtraction(content)
 
     let userPrompt = `故事段落（第${storyDay}天，第${chapterNumber}章）：\n${truncated}`
 
@@ -100,11 +112,13 @@ export class MemoExtractor {
     await this._persistEntities(parsed.entities || [], storyDay)
     await this._persistForeshadowingPlanted(parsed.foreshadowing_planted || [], storyDay, chapterNumber)
     await this._persistForeshadowingResolved(parsed.foreshadowing_resolved || [], unresolvedList, storyDay, chapterNumber)
+    const handoff = await this._persistHandoff(parsed.day_handoff, content, storyDay, handoffContext, unresolvedList, 'ai')
 
     return {
       entities: parsed.entities || [],
       planted: parsed.foreshadowing_planted || [],
-      resolved: parsed.foreshadowing_resolved || []
+      resolved: parsed.foreshadowing_resolved || [],
+      handoff,
     }
   }
 
@@ -207,7 +221,7 @@ export class MemoExtractor {
   }
 
   // 降级模式：正则提取（保留原有逻辑作为 fallback）
-  async _extractWithRegex(content, storyDay, chapterNumber) {
+  async _extractWithRegex(content, storyDay, chapterNumber, unresolvedList = [], handoffContext = {}) {
     let entities = []
     let planted = []
 
@@ -217,6 +231,73 @@ export class MemoExtractor {
     } catch (e) { /* ignore */ }
 
     // 正则模式无法检测回收，跳过
-    return { entities, planted, resolved: [] }
+    const handoff = await this._persistHandoff(null, content, storyDay, handoffContext, unresolvedList, 'fallback')
+    return { entities, planted, resolved: [], handoff }
+  }
+
+  _prepareContentForExtraction(content) {
+    if (content.length <= this.maxContentChars) return content
+    const headLength = 1400
+    const tailLength = this.maxContentChars - headLength
+    return `${content.slice(0, headLength)}\n\n【中段已省略；以下为故事结尾，交接单必须以此为准】\n${content.slice(-tailLength)}`
+  }
+
+  async _persistHandoff(rawHandoff, content, storyDay, context, unresolvedList, source) {
+    if (!this.handoffRepo || !context.segmentId) return null
+    const handoff = this._normalizeHandoff(rawHandoff, content, unresolvedList, context)
+    return this.handoffRepo.upsert({
+      dayNumber: storyDay,
+      segmentId: context.segmentId,
+      ...handoff,
+      source,
+      sourceContentHash: this._contentHash(content),
+    })
+  }
+
+  _normalizeHandoff(raw, content, unresolvedList, context) {
+    const fallback = this._fallbackHandoff(content, unresolvedList, context)
+    const value = raw && typeof raw === 'object' ? raw : {}
+    const array = item => Array.isArray(item) ? item : []
+    const string = item => String(item || '').trim()
+    return {
+      schemaVersion: 1,
+      endingScene: value.endingScene && typeof value.endingScene === 'object' ? value.endingScene : fallback.endingScene,
+      characterStates: array(value.characterStates),
+      hardFacts: array(value.hardFacts).map(string).filter(Boolean).slice(0, 10).length ? array(value.hardFacts).map(string).filter(Boolean).slice(0, 10) : fallback.hardFacts,
+      activeGoal: string(value.activeGoal) || fallback.activeGoal,
+      unfinishedAction: string(value.unfinishedAction) || fallback.unfinishedAction,
+      immediateNextAction: string(value.immediateNextAction) || fallback.immediateNextAction,
+      unresolvedThreads: array(value.unresolvedThreads).length ? array(value.unresolvedThreads).slice(0, 8) : fallback.unresolvedThreads,
+      prohibitedChanges: array(value.prohibitedChanges).map(string).filter(Boolean).length ? array(value.prohibitedChanges).map(string).filter(Boolean).slice(0, 10) : fallback.prohibitedChanges,
+      choiceContext: context.choiceContext || null,
+    }
+  }
+
+  _fallbackHandoff(content, unresolvedList, context) {
+    const ending = content.slice(-1600).trim()
+    const unresolvedThreads = (unresolvedList || []).slice(0, 6).map(item => ({ description: item.description, priority: item.priority || 'normal' }))
+    const choice = context.choiceContext
+    const hardFacts = [
+      ...(choice?.description ? [`用户已选择：${choice.description}`] : []),
+      ...unresolvedThreads.map(item => `未解决线索：${item.description}`),
+    ]
+    return {
+      endingScene: { time: '本日结尾', location: '以正文结尾场景为准', presentCharacters: [], physicalState: ending },
+      characterStates: [], hardFacts,
+      activeGoal: choice?.effect || '承接正文结尾并推进当前线索。',
+      unfinishedAction: ending || '承接本日结尾状态。',
+      immediateNextAction: '从本日结尾形成的状态继续行动。',
+      unresolvedThreads,
+      prohibitedChanges: ['不得无解释地改变本日结尾的场景、人物状态、物品和当前目标。'],
+    }
+  }
+
+  _contentHash(content) {
+    let hash = 2166136261
+    for (let index = 0; index < content.length; index++) {
+      hash ^= content.charCodeAt(index)
+      hash = Math.imul(hash, 16777619)
+    }
+    return `fnv1a-${(hash >>> 0).toString(16)}-${content.length}`
   }
 }

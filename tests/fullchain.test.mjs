@@ -139,6 +139,17 @@ await test('1.5 finalize 后状态为 finalized + 天数递增', async () => {
   assert.strictEqual(segment.status, 'finalized');
 });
 
+await test('1.5a 定稿写入日终交接单，生成前保存可复用计划', async () => {
+  const { storyEngine, repos } = createMockStoryEngine({ mockAdapter: createMockAIAdapter() });
+  const generated = await storyEngine.generateStory({ diaryText: '今天看书并整理线索', behaviorTags: ['学习'], dayNumber: 8 });
+  assert.strictEqual(repos.storyPlanRepo.data.length, 1, '生成前应保存当天计划');
+  assert.strictEqual(repos.storyPlanRepo.data[0].status, 'used', '成功草稿应标记计划已使用');
+  await storyEngine.finalize(generated.segmentId);
+  const handoff = await repos.handoffRepo.getByDay(8);
+  assert(handoff, '定稿后应存在日终交接单');
+  assert.strictEqual(handoff.segment_id, generated.segmentId);
+});
+
 await test('1.6 生成→定稿→刷新后仍可读', async () => {
   const firstApp = createMockStoryEngine({ mockAdapter: createMockAIAdapter() });
   const generated = await firstApp.storyEngine.generateStory({
@@ -166,7 +177,7 @@ await test('1.6 生成→定稿→刷新后仍可读', async () => {
 console.log('\n[场景2] 重新生成流程（generateStory → regenerate → finalize）');
 
 await test('2.1 regenerate 在 draft_ready 状态下成功', async () => {
-  const { storyEngine } = createMockStoryEngine({ mockAdapter: createMockAIAdapter() });
+  const { storyEngine, repos } = createMockStoryEngine({ mockAdapter: createMockAIAdapter() });
   const genResult = await storyEngine.generateStory({
     diaryText: '今天看书', behaviorTags: ['学习'], dayNumber: 8,
   });
@@ -174,6 +185,7 @@ await test('2.1 regenerate 在 draft_ready 状态下成功', async () => {
   assert.strictEqual(regenResult.success, true);
   assert(regenResult.content !== undefined);
   assert(regenResult.mappingDesc !== undefined);
+  assert.strictEqual(repos.storyPlanRepo.data.length, 1, '重新生成必须复用同一份有效计划');
 });
 
 await test('2.2 regenerate 后状态恢复为 draft_ready', async () => {
@@ -224,6 +236,9 @@ await test('3.1 saveEdit 保存用户编辑内容', async () => {
   assert.strictEqual(segment.content, '用户手动编辑的内容');
   assert.strictEqual(segment.status, 'finalized');
   assert.strictEqual(segment.is_edited, true);
+  const handoff = await repos.handoffRepo.getByDay(8);
+  assert(handoff, '编辑后的正文也必须刷新日终交接单');
+  assert.strictEqual(handoff.source_content_hash.endsWith('-9'), true, '交接单应对应编辑后的正文长度');
 });
 
 await test('3.2 saveEdit 递增天数', async () => {

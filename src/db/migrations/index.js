@@ -37,6 +37,30 @@ const migrations = {
       selected_day INTEGER, completed_day INTEGER, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )`)
     db.run(`CREATE INDEX IF NOT EXISTS idx_narrative_status ON narrative_node_state(status)`)
+  },
+  // 版本 5：跨日交接单与写作计划持久化
+  5: async (db) => {
+    db.run(`CREATE TABLE IF NOT EXISTS day_handoff (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, day_number INTEGER NOT NULL UNIQUE,
+      segment_id INTEGER NOT NULL, schema_version INTEGER NOT NULL DEFAULT 1,
+      ending_scene_json TEXT NOT NULL, character_state_json TEXT NOT NULL,
+      hard_facts_json TEXT NOT NULL, active_goal TEXT, unfinished_action TEXT,
+      immediate_next_action TEXT, unresolved_threads_json TEXT NOT NULL,
+      prohibited_changes_json TEXT NOT NULL, choice_context_json TEXT,
+      source TEXT NOT NULL DEFAULT 'ai', source_content_hash TEXT NOT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )`)
+    db.run(`CREATE INDEX IF NOT EXISTS idx_handoff_segment ON day_handoff(segment_id)`)
+    db.run(`CREATE TABLE IF NOT EXISTS story_plan (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, day_number INTEGER NOT NULL,
+      segment_id INTEGER NOT NULL, previous_handoff_day INTEGER,
+      schema_version INTEGER NOT NULL DEFAULT 1, plan_json TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'planned', source TEXT NOT NULL DEFAULT 'ai',
+      input_fingerprint TEXT NOT NULL, validation_errors_json TEXT,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )`)
+    db.run(`CREATE INDEX IF NOT EXISTS idx_story_plan_segment ON story_plan(segment_id)`)
+    db.run(`CREATE INDEX IF NOT EXISTS idx_story_plan_day_status ON story_plan(day_number, status)`)
   }
 }
 

@@ -26,6 +26,7 @@ const calls = []
 class RecordingDeepSeekAdapter extends DeepSeekAdapter {
   async chat(args) {
     const kind = args.systemPrompt.includes('日记分析助手') ? 'diary-parser'
+      : args.systemPrompt.includes('编剧规划器') ? 'planner'
       : args.userPrompt.includes('审查') ? 'critical'
       : args.userPrompt.includes('润色') ? 'polish'
         : 'writer'
@@ -96,6 +97,8 @@ report.diaryInfluenceEvidence = report.days.map(day => ({ day: day.day, inputApp
 
 const day1 = report.days[0]
 const day6 = report.days[5]
+report.plannedDays = repos.storyPlanRepo.data.filter(plan => plan.status === 'used').length
+report.handoffDays = repos.handoffRepo.data.length
 const audit = await adapter.chat({
   apiKey, baseUrl: null, temperature: 0, maxTokens: 500,
   systemPrompt: '你是严格的连载小说连续性审计员。只输出 JSON。',
@@ -126,4 +129,4 @@ await fs.writeFile(path.join(outputDir, `real-7day-${runId}.md`), markdown, 'utf
 console.log(`REPORT_JSON=${path.join(outputDir, `real-7day-${runId}.json`)}`)
 console.log(`REPORT_MD=${path.join(outputDir, `real-7day-${runId}.md`)}`)
 console.log(`RESULT choice=${report.choiceInheritedInWriterPrompt} foreshadow=${report.foreshadowAudit?.resolved} diary=${report.influenceAudit?.diaryHasConsequence} criticalRejected=${report.critical?.passed === false}`)
-if (!report.choiceInheritedInWriterPrompt || !report.foreshadowAudit?.resolved || !report.influenceAudit?.choiceHasConsequence || !report.influenceAudit?.diaryHasConsequence || report.critical?.passed !== false) process.exitCode = 2
+if (!report.choiceInheritedInWriterPrompt || !report.foreshadowAudit?.resolved || !report.influenceAudit?.choiceHasConsequence || !report.influenceAudit?.diaryHasConsequence || report.critical?.passed !== false || report.plannedDays !== 7 || report.handoffDays !== 7) process.exitCode = 2
