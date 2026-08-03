@@ -36,6 +36,8 @@ CREATE TABLE IF NOT EXISTS diary_entries (
   raw_text      TEXT NOT NULL,
   behavior_tags TEXT,
   is_blank_day  BOOLEAN DEFAULT 0,
+  mood          TEXT DEFAULT NULL,
+  weather       TEXT DEFAULT NULL,
   created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_diary_day ON diary_entries(day_number);
