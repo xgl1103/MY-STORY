@@ -115,6 +115,10 @@ class MockWorldRepository {
     return results.map(n => JSON.parse(JSON.stringify(n)));
   }
 
+  async getAllOutlineNodes(worldId) {
+    return this.outlineNodes.map(n => JSON.parse(JSON.stringify(n)))
+  }
+
   async getMappings(worldId) {
     return this.mappings.map(m => JSON.parse(JSON.stringify(m)));
   }

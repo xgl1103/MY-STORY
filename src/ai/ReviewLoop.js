@@ -96,6 +96,86 @@ class ReviewLoop {
     };
   }
 
+  // 润色后复核：防止润色阶段为了文采而改写既有事实。
+  async verify(content, systemPrompt, adapter, apiKey, baseUrl, reviewParams) {
+    const result = await this._reviewRound(
+      content,
+      this.REVIEW_PROMPT_ROUND_2,
+      ['核对润色稿是否改变了既有角色状态、分支选择、伏笔和时间线'],
+      systemPrompt,
+      adapter,
+      apiKey,
+      baseUrl,
+      reviewParams,
+      2 // 首次可给出修订稿，第二次核对修订稿；必要时再做一次最终复核，不能把未复核的修订稿当成通过。
+    )
+    return { finalContent: result.content, passed: result.passed, totalRounds: result.roundsUsed, issues: result.issues }
+  }
+
+  // V2 审查接口：Critical 只提供分级问题和正文证据，不再生成 revised_content。
+  // 保留 run/verify 供旧草稿与兼容测试使用；新 StoryEngine 主链路应调用 audit。
+  async audit(content, systemPrompt, adapter, apiKey, baseUrl, { continuityContext = '', storyPlanContext = '', hardOnly = false, maxTokens = 1400 } = {}) {
+    const prompt = `你是互动连载小说的严格 Critical。只检查事实与场景合同执行，不要改写正文。
+
+【待审查正文】
+${content}
+
+【必须遵守的既有事实】
+${continuityContext}
+
+【必须逐项验收的场景级剧情合同】
+${storyPlanContext}
+
+【分级】
+- P0：日记事件遗漏或仅提及、用户选择无具体后果、开场未承接、硬事实矛盾。
+- P1：时间/地点跳跃未桥接、结尾合同缺失、场景顺序或因果混乱。
+- P2：心理、文风、局部重复等文学建议。
+${hardOnly ? '本次只报告 P0；P1/P2 不得作为失败理由。' : ''}
+
+只输出严格 JSON：
+{
+  "passed": true或false,
+  "findings": [{"code":"C101","severity":"P0|P1|P2","contractId":"S1|D1|C-selected|ending","issue":"问题","evidence":"正文中的具体证据","repairInstruction":"可执行修复要求"}]
+}
+当不存在 P0${hardOnly ? '' : ' 或 P1'} 时 passed 为 true；不要输出 revised_content、Markdown 或任何说明。`
+    const result = await ErrorHandler.callWithRetry(async () => adapter.chat({
+      apiKey, baseUrl, systemPrompt, userPrompt: prompt, temperature: 0, maxTokens, jsonMode: true,
+    }), '场景合同审查')
+    if (!result.success || !result.content) {
+      return { passed: false, findings: [{ code: 'C109', severity: 'P0', contractId: 'system', issue: 'Critical 调用失败', evidence: result.error || '无响应', repairInstruction: '稍后重试审查，不能将未审查正文标记为通过。' }], systemError: true }
+    }
+    try {
+      const parsed = this._parseReviewJson(result.content)
+      const findings = this._normalizeFindings(parsed)
+      const blocking = findings.filter(item => hardOnly ? item.severity === 'P0' : ['P0', 'P1'].includes(item.severity))
+      // 兼容旧审查 JSON：passed=false 且没有 issues/finding 时仍保持保守不通过。
+      if (parsed.passed === false && !findings.length) {
+        return { passed: false, findings: [{ code: 'C109', severity: 'P0', contractId: 'critical', issue: 'Critical 判定不通过但未提供可执行证据', evidence: '', repairInstruction: '重新执行审查。' }], systemError: true }
+      }
+      // P2 是可记录但不阻断的文学建议；只有当前审查范围内的阻断级问题才失败。
+      return { passed: blocking.length === 0, findings, systemError: false }
+    } catch (_) {
+      return { passed: false, findings: [{ code: 'C109', severity: 'P0', contractId: 'system', issue: 'Critical 返回格式无效', evidence: '', repairInstruction: '重新执行审查，不能放行未验证正文。' }], systemError: true }
+    }
+  }
+
+  _normalizeFindings(parsed) {
+    const raw = Array.isArray(parsed?.findings) ? parsed.findings : (Array.isArray(parsed?.issues) ? parsed.issues.map(issue => ({ issue, severity: parsed?.severity })) : [])
+    return raw.map((item, index) => {
+      const severity = ['P0', 'P1', 'P2'].includes(item?.severity)
+        ? item.severity
+        : item?.severity === 'high' ? 'P0' : item?.severity === 'low' ? 'P2' : 'P1'
+      return {
+        code: String(item?.code || `C${String(101 + index).padStart(3, '0')}`),
+        severity,
+        contractId: String(item?.contractId || 'unknown'),
+        issue: String(item?.issue || item || '审查发现问题'),
+        evidence: String(item?.evidence || ''),
+        repairInstruction: String(item?.repairInstruction || item?.suggestions || '修复该合同项，并保持其他硬事实不变。'),
+      }
+    })
+  }
+
   /**
    * 执行单个审查轮次（含重试逻辑）
    * @private
@@ -119,6 +199,12 @@ class ReviewLoop {
       if (reviewPrompt === this.REVIEW_PROMPT_ROUND_2 && previousIssues) {
         prompt = prompt.split('{previous_issues}').join(previousIssues.join('\n'));
       }
+      if (reviewParams.continuityContext) {
+        prompt += `\n\n【必须核对的既有叙事事实】\n${reviewParams.continuityContext}`
+      }
+      if (reviewParams.storyPlanContext) {
+        prompt += `\n\n【必须逐项验收的当天剧情计划】\n${reviewParams.storyPlanContext}\n\n若违反开场承接、日记因果、命运后果或禁止改变，请在 issues 中使用 C001～C007 标记并提供修订稿。`
+      }
 
       // 调用 AI 审查（复用故事生成的 systemPrompt 保持世界观上下文）
       // 用 callWithRetry 包裹，网络错误时自动重试
@@ -130,6 +216,7 @@ class ReviewLoop {
           userPrompt: prompt,
           temperature: reviewParams.temperature || 0.3,
           maxTokens: reviewParams.maxTokens || 3000,
+          jsonMode: true,
         });
       }, `审查轮次${roundsUsed}`);
 
@@ -206,13 +293,56 @@ class ReviewLoop {
       } catch (_) { /* 继续 */ }
     }
 
-    // 3. 提取第一个 { ... } 花括号块
-    const braceMatch = content.match(/\{[\s\S]*\}/);
-    if (braceMatch) {
-      try {
-        return JSON.parse(braceMatch[0]);
-      } catch (_) { /* 继续 */ }
+    // 3. 提取每一个完整、括号平衡的对象。不能用贪婪正则：模型偶尔会
+    // 在 JSON 前后再附带一个对象或说明，/\{[\s\S]*\}/ 会把它们拼在一起。
+    for (let start = 0; start < content.length; start++) {
+      if (content[start] !== '{') continue
+      let depth = 0
+      let inString = false
+      let escaped = false
+      for (let end = start; end < content.length; end++) {
+        const char = content[end]
+        if (inString) {
+          if (escaped) escaped = false
+          else if (char === '\\') escaped = true
+          else if (char === '"') inString = false
+          continue
+        }
+        if (char === '"') inString = true
+        else if (char === '{') depth++
+        else if (char === '}') {
+          depth--
+          if (depth === 0) {
+            try {
+              const parsed = JSON.parse(content.slice(start, end + 1))
+              if (parsed && typeof parsed === 'object' && typeof parsed.passed === 'boolean') return parsed
+            } catch (_) { /* 尝试下一个对象 */ }
+            break
+          }
+        }
+      }
     }
+
+    // 某些模型会在 revised_content 中写入未转义的换行，导致整个 JSON 无法解析。
+    // 可保守挽救明确结论：true 仅在明确通过时放行；false 则保留为未通过，交由
+    // StoryEngine 的定向修复流程处理，不能因格式问题把有风险的剧情放行。
+    const passedMatch = content.match(/["']?passed["']?\s*[:：]\s*(true|false)/i)
+    if (passedMatch?.[1]?.toLowerCase() === 'true') {
+      return { passed: true, issues: [], revised_content: '' }
+    }
+    if (passedMatch?.[1]?.toLowerCase() === 'false') {
+      const issuesMatch = content.match(/["']?issues["']?\s*[:：]\s*\[([\s\S]*?)\]/i)
+      const issues = issuesMatch?.[1]
+        ? issuesMatch[1].split(/(?:",\s*"|”\s*,\s*“)/).map(item => item.replace(/^["'“\s]+|["'”\s]+$/g, '')).filter(Boolean)
+        : ['审查模型明确判定未通过，但返回格式不完整']
+      return { passed: false, issues, revised_content: '' }
+    }
+
+    // 极少数模型会无视 JSON 约束，只给出明确的中文结论。只接受非常窄的
+    // “结论/审查结果 + 通过”格式，任何包含问题、修改建议或否定的自然语言都不放行。
+    const compact = content.trim()
+    const explicitPass = /^(?:【?(?:结论|审查结果|审核结果)】?\s*[：:]?\s*)?(?:通过|合格|PASS)[。！!]?$/i
+    if (explicitPass.test(compact)) return { passed: true, issues: [], revised_content: '' }
 
     // 所有解析方式均失败
     throw new Error('无法解析审查结果 JSON');

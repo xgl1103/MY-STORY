@@ -357,11 +357,17 @@ async function confirm() {
     }
     const res = await storyEngine.finalize(segmentId.value)
     if (res && res.success) {
-      // 定稿后跳转：故事完结跳 /?ended=1，否则跳 /
+      // 定稿后先进入阅读页：用户读完当天结尾后，才决定下一天的命运。
       if (res.storyEnded) {
         router.replace('/?ended=1')
       } else {
-        router.replace('/')
+        try {
+          const finalizedSegment = await SegmentRepository.getById(segmentId.value)
+          if (finalizedSegment?.chapter_id) router.replace(`/reader/${finalizedSegment.chapter_id}`)
+          else router.replace('/')
+        } catch (_) {
+          router.replace('/')
+        }
       }
 
       // R11 修复：基于刚定稿的 segmentId 取章节，而非 getCurrent()（可能已切换到新章节）

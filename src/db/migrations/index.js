@@ -28,6 +28,65 @@ const migrations = {
       if (!String(e.message).includes('duplicate column')) throw e
     }
   }
+  ,
+  // 版本 4：剧情图运行时状态与用户命运选择
+  4: async (db) => {
+    db.run(`CREATE TABLE IF NOT EXISTS narrative_node_state (
+      node_id TEXT PRIMARY KEY, world_id TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending',
+      selected_option_id TEXT, selected_option_desc TEXT, selected_effect TEXT,
+      selected_day INTEGER, completed_day INTEGER, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )`)
+    db.run(`CREATE INDEX IF NOT EXISTS idx_narrative_status ON narrative_node_state(status)`)
+  },
+  // 版本 5：跨日交接单与写作计划持久化
+  5: async (db) => {
+    db.run(`CREATE TABLE IF NOT EXISTS day_handoff (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, day_number INTEGER NOT NULL UNIQUE,
+      segment_id INTEGER NOT NULL, schema_version INTEGER NOT NULL DEFAULT 1,
+      ending_scene_json TEXT NOT NULL, character_state_json TEXT NOT NULL,
+      hard_facts_json TEXT NOT NULL, active_goal TEXT, unfinished_action TEXT,
+      immediate_next_action TEXT, unresolved_threads_json TEXT NOT NULL,
+      prohibited_changes_json TEXT NOT NULL, choice_context_json TEXT,
+      source TEXT NOT NULL DEFAULT 'ai', source_content_hash TEXT NOT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )`)
+    db.run(`CREATE INDEX IF NOT EXISTS idx_handoff_segment ON day_handoff(segment_id)`)
+    db.run(`CREATE TABLE IF NOT EXISTS story_plan (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, day_number INTEGER NOT NULL,
+      segment_id INTEGER NOT NULL, previous_handoff_day INTEGER,
+      schema_version INTEGER NOT NULL DEFAULT 1, plan_json TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'planned', source TEXT NOT NULL DEFAULT 'ai',
+      input_fingerprint TEXT NOT NULL, validation_errors_json TEXT,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )`)
+    db.run(`CREATE INDEX IF NOT EXISTS idx_story_plan_segment ON story_plan(segment_id)`)
+    db.run(`CREATE INDEX IF NOT EXISTS idx_story_plan_day_status ON story_plan(day_number, status)`)
+  },
+  // 版本 6：日终交接单质量元数据与结构化硬事实
+  6: async (db) => {
+    const columns = [
+      ['quality_status', "TEXT NOT NULL DEFAULT 'valid'"],
+      ['quality_issues_json', 'TEXT'],
+      ['fact_records_json', 'TEXT'],
+      ['fallback_reason', 'TEXT'],
+    ]
+    for (const [name, definition] of columns) {
+      try { db.run(`ALTER TABLE day_handoff ADD COLUMN ${name} ${definition}`) }
+      catch (e) { if (!String(e.message).includes('duplicate column')) throw e }
+    }
+  },
+  // 版本 7：保存剧情合同审查证据，供导出、复盘与真实测试报告使用
+  7: async (db) => {
+    const columns = [
+      ['review_findings_json', 'TEXT'],
+      ['repair_count', 'INTEGER NOT NULL DEFAULT 0'],
+      ['final_verification_status', 'TEXT'],
+    ]
+    for (const [name, definition] of columns) {
+      try { db.run(`ALTER TABLE story_plan ADD COLUMN ${name} ${definition}`) }
+      catch (e) { if (!String(e.message).includes('duplicate column')) throw e }
+    }
+  }
 }
 
 export async function runMigrations(db) {

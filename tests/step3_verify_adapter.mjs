@@ -1,10 +1,10 @@
 // 联调第3步：用项目的 DeepSeek 适配器调用真实 API
 // 运行: node tests/step3_verify_adapter.mjs
 
-import { pathToFileURL } from 'url';
+import { fileURLToPath, pathToFileURL } from 'url';
 import path from 'path';
 
-const workspace = 'e:\\Code\\手机mystory游戏';
+const workspace = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const f = (p) => pathToFileURL(path.join(workspace, p)).href;
 
 const { default: DeepSeekAdapter } = await import(f('src\\ai\\adapters\\DeepSeekAdapter.js'));
@@ -80,9 +80,7 @@ console.log(`  成功: ${result.success}`);
 if (result.success) {
   console.log(`  Token 用量: ${result.tokensUsed}`);
   console.log(`  内容长度: ${result.content.length} 字`);
-  console.log(`\n--- 生成内容 ---`);
-  console.log(result.content);
-  console.log(`--- end ---\n`);
+  console.log('  内容已生成（正文不写入终端日志）。');
   console.log('结论: DeepSeek 适配器调用真实 API 成功，生成的小说段落符合诡秘风格');
 } else {
   console.log(`  错误码: ${result.errorCode}`);

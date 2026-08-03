@@ -170,7 +170,70 @@ CREATE TABLE IF NOT EXISTS foreshadowing (
 );
 CREATE INDEX IF NOT EXISTS idx_foreshadow_status ON foreshadowing(status);
 
--- 13. story_fts（FTS5 全文索引虚拟表，用于动态 RAG 检索）
+-- 13. narrative_node_state（剧情图运行时状态与用户分支选择）
+CREATE TABLE IF NOT EXISTS narrative_node_state (
+  node_id              TEXT PRIMARY KEY,
+  world_id             TEXT NOT NULL,
+  status               TEXT NOT NULL DEFAULT 'pending',
+  selected_option_id   TEXT,
+  selected_option_desc TEXT,
+  selected_effect      TEXT,
+  selected_day         INTEGER,
+  completed_day        INTEGER,
+  updated_at           TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_narrative_status ON narrative_node_state(status);
+
+-- 14. day_handoff（每日故事结尾的可执行交接状态）
+CREATE TABLE IF NOT EXISTS day_handoff (
+  id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+  day_number            INTEGER NOT NULL UNIQUE,
+  segment_id            INTEGER NOT NULL,
+  schema_version        INTEGER NOT NULL DEFAULT 1,
+  ending_scene_json     TEXT NOT NULL,
+  character_state_json  TEXT NOT NULL,
+  hard_facts_json       TEXT NOT NULL,
+  active_goal           TEXT,
+  unfinished_action     TEXT,
+  immediate_next_action TEXT,
+  unresolved_threads_json TEXT NOT NULL,
+  prohibited_changes_json TEXT NOT NULL,
+  choice_context_json   TEXT,
+  source                TEXT NOT NULL DEFAULT 'ai',
+  source_content_hash   TEXT NOT NULL,
+  quality_status        TEXT NOT NULL DEFAULT 'valid',
+  quality_issues_json   TEXT,
+  fact_records_json     TEXT,
+  fallback_reason       TEXT,
+  created_at            TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at            TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (segment_id) REFERENCES story_segments(id)
+);
+CREATE INDEX IF NOT EXISTS idx_handoff_segment ON day_handoff(segment_id);
+
+-- 15. story_plan（Writer/Critical 共用的当天因果执行计划）
+CREATE TABLE IF NOT EXISTS story_plan (
+  id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+  day_number            INTEGER NOT NULL,
+  segment_id            INTEGER NOT NULL,
+  previous_handoff_day  INTEGER,
+  schema_version        INTEGER NOT NULL DEFAULT 1,
+  plan_json             TEXT NOT NULL,
+  status                TEXT NOT NULL DEFAULT 'planned',
+  source                TEXT NOT NULL DEFAULT 'ai',
+  input_fingerprint     TEXT NOT NULL,
+  validation_errors_json TEXT,
+  review_findings_json  TEXT,
+  repair_count          INTEGER NOT NULL DEFAULT 0,
+  final_verification_status TEXT,
+  created_at            TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at            TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (segment_id) REFERENCES story_segments(id)
+);
+CREATE INDEX IF NOT EXISTS idx_story_plan_segment ON story_plan(segment_id);
+CREATE INDEX IF NOT EXISTS idx_story_plan_day_status ON story_plan(day_number, status);
+
+-- 16. story_fts（FTS5 全文索引虚拟表，用于动态 RAG 检索）
 -- 使用 trigram tokenizer 支持中文（3-gram 分词，无需外部分词器）
 -- 如果 sql.js 不支持 FTS5，创建会失败但不影响其他表
 CREATE VIRTUAL TABLE IF NOT EXISTS story_fts USING fts5(

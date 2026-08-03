@@ -9,6 +9,11 @@ import MockDiaryRepository from './MockDiaryRepository.js';
 import MockChapterRepository from './MockChapterRepository.js';
 import MockSegmentRepository from './MockSegmentRepository.js';
 import MockWorldRepository from './MockWorldRepository.js';
+import MockNarrativeStateRepository from './MockNarrativeStateRepository.js';
+import MockDayHandoffRepository from './MockDayHandoffRepository.js';
+import MockStoryPlanRepository from './MockStoryPlanRepository.js';
+import MockEntityRepository from './MockEntityRepository.js';
+import MockForeshadowingRepository from './MockForeshadowingRepository.js';
 
 import PromptBuilder from '../src/ai/PromptBuilder.js';
 import ReviewLoop from '../src/ai/ReviewLoop.js';
@@ -30,6 +35,11 @@ function createMockEnvironment() {
   const chapterRepo = new MockChapterRepository();
   const segmentRepo = new MockSegmentRepository();
   const worldRepo = new MockWorldRepository();
+  const narrativeRepo = new MockNarrativeStateRepository();
+  const handoffRepo = new MockDayHandoffRepository();
+  const storyPlanRepo = new MockStoryPlanRepository();
+  const entityRepo = new MockEntityRepository();
+  const foreshadowRepo = new MockForeshadowingRepository();
 
   const promptBuilder = new PromptBuilder();
   const reviewLoop = new ReviewLoop();
@@ -39,7 +49,7 @@ function createMockEnvironment() {
   const ragRetriever = new RAGRetriever(worldRepo);
 
   return {
-    userRepo, diaryRepo, chapterRepo, segmentRepo, worldRepo,
+    userRepo, diaryRepo, chapterRepo, segmentRepo, worldRepo, narrativeRepo, handoffRepo, storyPlanRepo, entityRepo, foreshadowRepo,
     promptBuilder, reviewLoop, adapterFactory: getAdapterClass,
     immediateContext, summaryMemory, ragRetriever,
   };
@@ -68,6 +78,11 @@ function createMockStoryEngine(options = {}) {
   const chapterRepo = new MockChapterRepository();
   const segmentRepo = new MockSegmentRepository();
   const worldRepo = new MockWorldRepository();
+  const narrativeRepo = new MockNarrativeStateRepository();
+  const handoffRepo = new MockDayHandoffRepository();
+  const storyPlanRepo = new MockStoryPlanRepository();
+  const entityRepo = new MockEntityRepository();
+  const foreshadowRepo = new MockForeshadowingRepository();
 
   // 模拟应用刷新后的重新初始化：只从可序列化快照恢复持久化数据，
   // 绝不复用旧 Repository 实例。
@@ -80,6 +95,9 @@ function createMockStoryEngine(options = {}) {
     chapterRepo.setCurrentChapterNumber(persistedState.currentChapterNumber);
     segmentRepo.data = JSON.parse(JSON.stringify(persistedState.segments));
     segmentRepo.idCounter = persistedState.segmentIdCounter;
+    handoffRepo.data = JSON.parse(JSON.stringify(persistedState.handoffs || []));
+    storyPlanRepo.data = JSON.parse(JSON.stringify(persistedState.storyPlans || []));
+    storyPlanRepo.idCounter = persistedState.storyPlanIdCounter || 1;
   }
 
   // 覆盖用户初始状态
@@ -103,7 +121,7 @@ function createMockStoryEngine(options = {}) {
 
   // 创建 StoryEngine（自动装配所有子组件）
   const storyEngine = new StoryEngine({
-    userRepo, diaryRepo, chapterRepo, segmentRepo, worldRepo,
+    userRepo, diaryRepo, chapterRepo, segmentRepo, worldRepo, narrativeRepo, handoffRepo, storyPlanRepo, entityRepo, foreshadowRepo,
   });
 
   // 全链路测试使用内存 Repository；动态 RAG 不应绕过它去访问 SQLite 全局连接。
@@ -123,7 +141,7 @@ function createMockStoryEngine(options = {}) {
 
   return {
     storyEngine,
-    repos: { userRepo, diaryRepo, chapterRepo, segmentRepo, worldRepo },
+    repos: { userRepo, diaryRepo, chapterRepo, segmentRepo, worldRepo, narrativeRepo, handoffRepo, storyPlanRepo, entityRepo, foreshadowRepo },
     snapshot() {
       return JSON.parse(JSON.stringify({
         user: userRepo.data,
@@ -134,6 +152,9 @@ function createMockStoryEngine(options = {}) {
         currentChapterNumber: chapterRepo._currentChapterNumber,
         segments: segmentRepo.data,
         segmentIdCounter: segmentRepo.idCounter,
+        handoffs: handoffRepo.data,
+        storyPlans: storyPlanRepo.data,
+        storyPlanIdCounter: storyPlanRepo.idCounter,
       }));
     },
   };

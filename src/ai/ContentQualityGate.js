@@ -22,7 +22,6 @@ export class ContentQualityGate {
    */
   static collectCoverageKeywords(parsed = {}, diaryText = '') {
     const candidates = []
-    if (Array.isArray(parsed.keywords)) candidates.push(...parsed.keywords)
 
     // 引号内常为人名、地点、物品或事件名，是稳定且有价值的覆盖目标。
     const quoted = String(diaryText).match(/[「」『』“”"']([^「」『』“"']{2,12})[「」『』“"']/g) || []
@@ -30,6 +29,9 @@ export class ContentQualityGate {
       const text = item.replace(/[「」『』“”"']/g, '').trim()
       if (text) candidates.push(text)
     }
+
+    // 模型解析出的候选词仅用于补充，不能挤掉用户主动标注的实体。
+    if (Array.isArray(parsed.keywords)) candidates.push(...parsed.keywords)
 
     const seen = new Set()
     return candidates

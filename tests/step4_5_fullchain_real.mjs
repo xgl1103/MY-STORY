@@ -4,10 +4,10 @@
 // 策略：Mock Repository 提供数据（无需数据库），真实 DeepSeek 适配器调用真实 API
 // 覆盖 _getAIContext 返回真实 adapter + 真实 API Key
 
-import { pathToFileURL } from 'url';
+import { fileURLToPath, pathToFileURL } from 'url';
 import path from 'path';
 
-const workspace = 'e:\\Code\\手机mystory游戏';
+const workspace = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const f = (p) => pathToFileURL(path.join(workspace, p)).href;
 
 const { createMockStoryEngine } = await import(f('mock\\index.js'));
@@ -74,9 +74,6 @@ const segment = await repos.segmentRepo.getById(genResult.segmentId);
 console.log(`  段落状态: ${segment.status}`);
 console.log(`  diary_id: ${segment.diary_id}（非 null 表示日记已创建）`);
 
-console.log(`\n--- 生成内容（前500字）---`);
-console.log(genResult.content.substring(0, 500) + '...');
-console.log(`--- end ---`);
 console.log(`  内容总长度: ${genResult.content.length} 字\n`);
 
 // ===== 场景2：定稿 =====
@@ -109,9 +106,7 @@ if (genResult2.success) {
   // 检查是否有第1天内容的衔接
   const hasConnection = genResult2.content.includes('林墨') || genResult2.content.includes('占卜');
   console.log(`  与前文衔接: ${hasConnection ? '是（提及主角名或前文元素）' : '不确定'}`);
-  console.log(`\n--- 第2天内容（前300字）---`);
-  console.log(genResult2.content.substring(0, 300) + '...');
-  console.log(`--- end ---\n`);
+  console.log('  第2天正文已生成（正文不写入终端日志）。');
   
   // 定稿第2天
   await storyEngine.finalize(genResult2.segmentId);

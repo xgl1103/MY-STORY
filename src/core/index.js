@@ -3,7 +3,7 @@
 // Vite 环境变量控制：VITE_USE_MOCK=true 用 Mock，false 用真实 StoryEngine
 import MockStoryEngine from './MockStoryEngine.js'
 
-const USE_MOCK = import.meta.env.VITE_USE_MOCK !== 'false'
+const USE_MOCK = import.meta.env?.VITE_USE_MOCK === 'true'
 
 let instance = null
 let initPromise = null // 防止并发 initStoryEngine
@@ -32,12 +32,17 @@ export async function initStoryEngine() {
       const RealEngine = module.default
 
       // 动态加载真实 Repository
-      const [userRepoMod, diaryRepoMod, chapterRepoMod, segmentRepoMod, worldRepoMod] = await Promise.all([
+      const [userRepoMod, diaryRepoMod, chapterRepoMod, segmentRepoMod, worldRepoMod, narrativeRepoMod, entityRepoMod, foreshadowRepoMod, handoffRepoMod, storyPlanRepoMod] = await Promise.all([
         import(/* @vite-ignore */ '/src/db/repositories/UserRepository.js'),
         import(/* @vite-ignore */ '/src/db/repositories/DiaryRepository.js'),
         import(/* @vite-ignore */ '/src/db/repositories/ChapterRepository.js'),
         import(/* @vite-ignore */ '/src/db/repositories/SegmentRepository.js'),
         import(/* @vite-ignore */ '/src/db/repositories/WorldRepository.js'),
+        import(/* @vite-ignore */ '/src/db/repositories/NarrativeStateRepository.js'),
+        import(/* @vite-ignore */ '/src/db/repositories/EntityRepository.js'),
+        import(/* @vite-ignore */ '/src/db/repositories/ForeshadowingRepository.js'),
+        import(/* @vite-ignore */ '/src/db/repositories/DayHandoffRepository.js'),
+        import(/* @vite-ignore */ '/src/db/repositories/StoryPlanRepository.js'),
       ])
 
       instance = new RealEngine({
@@ -46,6 +51,11 @@ export async function initStoryEngine() {
         chapterRepo: chapterRepoMod.ChapterRepository,
         segmentRepo: segmentRepoMod.SegmentRepository,
         worldRepo: worldRepoMod.WorldRepository,
+        narrativeRepo: narrativeRepoMod.NarrativeStateRepository,
+        entityRepo: entityRepoMod.EntityRepository,
+        foreshadowRepo: foreshadowRepoMod.ForeshadowingRepository,
+        handoffRepo: handoffRepoMod.DayHandoffRepository,
+        storyPlanRepo: storyPlanRepoMod.StoryPlanRepository,
       })
     } catch (e) {
       console.error('无法加载真实 StoryEngine，回退到 Mock:', e)

@@ -24,10 +24,14 @@
 
     <!-- Step 2: API Key 配置 -->
     <div v-show="step === 2" class="step-content">
-      <h2 class="step-title">配置 AI 模型</h2>
-      <p class="step-desc">选择你使用的 AI 模型并填入 API Key，故事生成将调用此模型。</p>
+      <h2 v-if="!USE_SERVERLESS_AI" class="step-title">配置 AI 模型</h2>
+      <p v-if="!USE_SERVERLESS_AI" class="step-desc">选择你使用的 AI 模型并填入 API Key，故事生成将调用此模型。</p>
+      <div v-else class="hosted-ai-card">
+        <h2 class="step-title">AI 创作服务已就绪</h2>
+        <p class="step-desc">My Story 已为本次体验配置好 DeepSeek AI。无需填写或保管 API Key，直接开始创作即可。</p>
+      </div>
 
-      <label class="field">
+      <label v-if="!USE_SERVERLESS_AI" class="field">
         <span class="field-label">模型选择</span>
         <select v-model="form.aiProvider" @change="onProviderChange">
           <option value="deepseek">DeepSeek</option>
@@ -37,12 +41,12 @@
         </select>
       </label>
 
-      <label class="field">
+      <label v-if="!USE_SERVERLESS_AI" class="field">
         <span class="field-label">API Base URL（可选）</span>
         <input v-model="form.baseUrl" :placeholder="defaultBaseUrl" />
       </label>
 
-      <label class="field">
+      <label v-if="!USE_SERVERLESS_AI" class="field">
         <span class="field-label">API Key</span>
         <div class="key-input">
           <input
@@ -168,11 +172,12 @@ function onProviderChange() {
   testResult.value = ''
 }
 
-const USE_MOCK = import.meta.env.VITE_USE_MOCK !== 'false'
+const USE_MOCK = import.meta.env.VITE_USE_MOCK === 'true'
+const USE_SERVERLESS_AI = import.meta.env.VITE_USE_SERVERLESS_AI === 'true'
 
 const canNext = computed(() => {
   if (step.value === 2) {
-    if (USE_MOCK && form.value.apiKey) return true
+    if (USE_MOCK) return true
     return form.value.apiTested
   }
   if (step.value === 3) return (form.value.heroName || '').trim().length > 0
@@ -180,6 +185,27 @@ const canNext = computed(() => {
 })
 
 async function testConnection() {
+  if (USE_SERVERLESS_AI) {
+    testing.value = true
+    testResult.value = ''
+    try {
+      const res = await fetch('/api/ai', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'health' })
+      })
+      const data = await res.json().catch(() => ({}))
+      testSuccess.value = res.ok && data.configured
+      form.value.apiTested = testSuccess.value
+      testResult.value = testSuccess.value ? 'AI 创作服务连接成功' : 'AI 创作服务尚未配置，请联系项目方'
+    } catch (_) {
+      testSuccess.value = false
+      testResult.value = 'AI 创作服务暂时无法连接，请稍后重试'
+    } finally {
+      testing.value = false
+    }
+    return
+  }
   if (!form.value.apiKey) {
     testResult.value = '请先输入 API Key'
     testSuccess.value = false
@@ -216,10 +242,10 @@ async function testConnection() {
 async function next() {
   if (step.value === 2) {
     try {
-      const encrypted = await Crypto.encrypt(form.value.apiKey)
+      const encrypted = USE_SERVERLESS_AI ? null : await Crypto.encrypt(form.value.apiKey)
       await UserRepository.update({
-        ai_provider: form.value.aiProvider,
-        ai_base_url: form.value.baseUrl || null,
+        ai_provider: USE_SERVERLESS_AI ? 'deepseek' : form.value.aiProvider,
+        ai_base_url: USE_SERVERLESS_AI ? '/api/ai' : (form.value.baseUrl || null),
         api_key_encrypted: encrypted
       })
     } catch (e) {

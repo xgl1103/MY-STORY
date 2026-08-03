@@ -39,9 +39,16 @@ import SummaryMemory from '../memory/SummaryMemory.js';
 import RAGRetriever from '../memory/RAGRetriever.js';
 import { StoryRAGRetriever } from '../memory/StoryRAGRetriever.js';
 import { MemoExtractor } from '../ai/MemoExtractor.js';
+import StoryPlanner from '../ai/StoryPlanner.js';
+import StoryRewriter from '../ai/StoryRewriter.js';
+import NarrativeGraph from './NarrativeGraph.js';
 import { EntityRepository } from '../db/repositories/EntityRepository.js';
 import { ForeshadowingRepository } from '../db/repositories/ForeshadowingRepository.js';
+import { DayHandoffRepository } from '../db/repositories/DayHandoffRepository.js';
+import { StoryPlanRepository } from '../db/repositories/StoryPlanRepository.js';
 import Crypto from '../utils/Crypto.js';
+
+const USE_SERVERLESS_AI = import.meta.env?.VITE_USE_SERVERLESS_AI === 'true';
 
 class StoryEngine {
   /**
@@ -54,6 +61,10 @@ class StoryEngine {
     this.chapterRepo = repos.chapterRepo;
     this.segmentRepo = repos.segmentRepo;
     this.worldRepo = repos.worldRepo;
+    this.entityRepo = repos.entityRepo || EntityRepository;
+    this.foreshadowRepo = repos.foreshadowRepo || ForeshadowingRepository;
+    this.handoffRepo = repos.handoffRepo || DayHandoffRepository;
+    this.storyPlanRepo = repos.storyPlanRepo || StoryPlanRepository;
 
     // 子组件
     this.diaryParser = new DiaryParser();
@@ -74,7 +85,14 @@ class StoryEngine {
     this.summaryMemory = new SummaryMemory(this.chapterRepo);
     this.ragRetriever = new RAGRetriever(this.worldRepo);
     this.storyRagRetriever = new StoryRAGRetriever(this.segmentRepo);
-    this.memoExtractor = new MemoExtractor();
+    this.memoExtractor = new MemoExtractor({
+      entityRepo: this.entityRepo,
+      foreshadowRepo: this.foreshadowRepo,
+      handoffRepo: this.handoffRepo,
+    });
+    this.storyPlanner = new StoryPlanner();
+    this.storyRewriter = new StoryRewriter();
+    this.narrativeGraph = new NarrativeGraph(this.worldRepo, repos.narrativeRepo);
 
     // 并发控制
     this._generatingLock = false;
@@ -124,6 +142,16 @@ class StoryEngine {
         };
       }
 
+      // 关键分支日必须先由用户在上一日结尾作出选择，避免绕过剧情图直接生成。
+      const pendingChoice = await this.narrativeGraph.getPendingChoiceForNextDay(user)
+      if (pendingChoice && pendingChoice.triggerDay === dayNumber) {
+        return {
+          success: false,
+          error: '请先阅读上一天故事结尾，并作出下一步命运选择',
+          errorCode: 'E007',
+        }
+      }
+
       const chapter = await this.chapterRepo.getCurrent();
       if (!chapter) {
         return {
@@ -167,6 +195,9 @@ class StoryEngine {
       // 3. 步骤1：日记解析
       const parsed = await this.diaryParser.parse(diaryText, behaviorTags, aiContext);
       const coverageKeywords = ContentQualityGate.collectCoverageKeywords(parsed, diaryText);
+      const narrativeContext = await this.narrativeGraph.getGenerationContext({
+        user, dayNumber, chapterNumber: chapter.chapter_number,
+      });
 
       // 4. 步骤2：映射匹配
       const mappingRules = await this.worldRepo.getMappings(user.world_id);
@@ -197,15 +228,28 @@ class StoryEngine {
       let entityMemory = ''
       let foreshadowing = ''
       try {
-        entityMemory = EntityRepository.formatForPrompt()
-        foreshadowing = ForeshadowingRepository.formatForPrompt(dayNumber)
+        entityMemory = this.entityRepo.formatForPrompt()
+        foreshadowing = this.foreshadowRepo.formatForPrompt(dayNumber)
       } catch (e) { /* 首次运行表可能未创建 */ }
 
-      const outlineNodes = await this.worldRepo.getOutlineNodes(
-        user.world_id, chapter.chapter_number
-      );
-      const outlineContent = outlineNodes.map(n => n.content).join('\n');
-      const branchGuidance = this._getBranchGuidance(outlineNodes);
+      const outlineContent = narrativeContext.activeNode?.content || '（根据用户日记与已发生剧情自然推进。）';
+      const branchGuidance = narrativeContext.choices.length
+        ? narrativeContext.choices.map(item => item.effect || item.description).join('；')
+        : '（尚无已选择的分支。）';
+
+      // 5.5：在 Writer 之前将多层记忆收束为一份可审计的当天因果计划。
+      const storyPlanRecord = await this._getOrCreateStoryPlan({
+        segmentId,
+        dayNumber,
+        aiContext,
+        parsed,
+        mappingDesc,
+        narrativeContext,
+        entityMemory,
+        foreshadowing,
+        chapterPurpose: this._getChapterPurpose(chapter.chapter_number),
+        encounter,
+      })
 
       // 6. 状态置为 generating（S-1 状态机）
       await this.segmentRepo.updateStatus(segmentId, 'generating');
@@ -229,6 +273,8 @@ class StoryEngine {
         rawText: diaryText,
         dailyEvents: parsed.events,
         coverageKeywords,
+        narrativeContext,
+        storyPlan: storyPlanRecord.plan,
         mappingDesc,
         encounterTitle: encounter ? encounter.title : null,
         encounterContent: encounter ? encounter.content : null,
@@ -260,37 +306,25 @@ class StoryEngine {
       // 解析 AI 输出：分离故事正文和日记引用标注
       const parsed1 = this._parseStoryAndReferences(draftResult.content);
 
-      // 9. 步骤6：内部审查（2 轮）— 只审查正文部分
-      const reviewResult = await this.reviewLoop.run(
-        parsed1.content,
-        prompt.systemPrompt,
-        aiContext.adapter,
-        aiContext.apiKey,
-        aiContext.baseUrl,
-        { temperature: 0.3, maxTokens: 3000 }
-      );
-
-      // 用专用方法更新 internal_review_count（P0-2 修复）
-      await this.segmentRepo.updateReviewCount(segmentId, reviewResult.totalRounds);
-
-      if (!reviewResult.passed) {
+      // 9. 场景合同审查：Critical 只返回分级证据，唯一 Rewriter 负责修复。
+      const contractResult = await this._runSceneContractPipeline(parsed1.content, prompt, aiContext)
+      await this.segmentRepo.updateReviewCount(segmentId, contractResult.reviewCount)
+      if (!contractResult.success) {
+        await this._recordPlanReview(storyPlanRecord.id, {
+          findings: contractResult.findings || [], repairCount: Math.max(0, (contractResult.reviewCount || 1) - 1),
+          finalVerificationStatus: 'failed',
+        });
         await this.segmentRepo.updateStatus(segmentId, 'generate_failed');
         return {
           success: false,
           segmentId,
-          error: `内容审查未通过：${(reviewResult.issues || []).join('；') || '请重新生成'}`,
+          error: contractResult.error,
           errorCode: 'E007',
         };
       }
 
-      // 10. 步骤7：润色
-      let finalContent = reviewResult.finalContent;
-      const polishResult = await this._polish(
-        finalContent, prompt.systemPrompt, aiContext, user
-      );
-      if (polishResult.success && polishResult.content) {
-        finalContent = polishResult.content;
-      }
+      // 10. 润色是可回退的低风险步骤；若破坏 P0 硬事实，保留已通过合同的版本。
+      let finalContent = await this._polishWithRollback(contractResult.content, prompt, aiContext, user)
 
       const qualityResult = await this._enforceContentQuality(finalContent, {
         systemPrompt: prompt.systemPrompt,
@@ -298,6 +332,8 @@ class StoryEngine {
         user,
         dailyEvents: parsed.events,
         coverageKeywords,
+        continuityContext: prompt.continuityContext,
+        storyPlanContext: prompt.storyPlanContext,
       });
       if (!qualityResult.success) {
         await this.segmentRepo.updateStatus(segmentId, 'generate_failed');
@@ -310,12 +346,39 @@ class StoryEngine {
       }
       finalContent = qualityResult.content;
 
+      const causalResult = await this._enforceDiaryCausalImpact(finalContent, {
+        systemPrompt: prompt.systemPrompt,
+        aiContext,
+        user,
+        dailyEvents: parsed.events,
+        coverageKeywords,
+        continuityContext: prompt.continuityContext,
+        storyPlanContext: prompt.storyPlanContext,
+        requireSemanticDiaryAudit: (parsed.events || []).length > 0 && !qualityResult.assessment?.semanticDiaryInfluenceVerified,
+      });
+      if (!causalResult.success) {
+        await this._recordPlanReview(storyPlanRecord.id, {
+          findings: [...(contractResult.findings || []), ...(causalResult.findings || [])],
+          repairCount: Math.max(0, (contractResult.reviewCount || 1) - 1) + (causalResult.rewritten ? 1 : 0),
+          finalVerificationStatus: 'failed',
+        });
+        await this.segmentRepo.updateStatus(segmentId, 'generate_failed');
+        return { success: false, segmentId, error: causalResult.error, errorCode: 'E007' };
+      }
+      finalContent = causalResult.content;
+      await this._recordPlanReview(storyPlanRecord.id, {
+        findings: [...(contractResult.findings || []), ...(causalResult.findings || [])],
+        repairCount: Math.max(0, (contractResult.reviewCount || 1) - 1) + (causalResult.rewritten ? 1 : 0),
+        finalVerificationStatus: 'passed',
+      });
+
       // 11. 步骤8：正文、引用和状态原子提交；Repository 负责持久化细节。
       await this.segmentRepo.commitDraft(segmentId, {
         content: finalContent,
         references: parsed1.references,
-        reviewCount: reviewResult.totalRounds,
+        reviewCount: contractResult.reviewCount,
       })
+      await this.storyPlanRepo.markUsed(storyPlanRecord.id)
 
       // 注意：天数递增不在此方法执行，在 finalize 中执行（S-2 修复）
 
@@ -416,6 +479,9 @@ class StoryEngine {
       // 重新解析和映射
       const parsed = await this.diaryParser.parse(diaryText, behaviorTags, aiContext);
       const coverageKeywords = ContentQualityGate.collectCoverageKeywords(parsed, diaryText);
+      const narrativeContext = await this.narrativeGraph.getGenerationContext({
+        user, dayNumber: segment.day_number, chapterNumber: chapter ? chapter.chapter_number : 0,
+      });
       const mappingRules = await this.worldRepo.getMappings(user.world_id);
       const mappingDesc = await this.mappingEngine.map(parsed.detectedBehaviors, mappingRules);
       await this.segmentRepo.updateMapping(segmentId, mappingDesc);
@@ -448,14 +514,24 @@ class StoryEngine {
         console.warn('[StoryEngine] 动态 RAG 检索失败:', e.message)
       }
       try {
-        entityMemory = EntityRepository.formatForPrompt()
-        foreshadowing = ForeshadowingRepository.formatForPrompt(segment.day_number)
+        entityMemory = this.entityRepo.formatForPrompt()
+        foreshadowing = this.foreshadowRepo.formatForPrompt(segment.day_number)
       } catch (e) { /* ignore */ }
 
-      const outlineNodes = await this.worldRepo.getOutlineNodes(
-        user.world_id, chapter ? chapter.chapter_number : 0
-      );
-      const outlineContent = outlineNodes.map(n => n.content).join('\n');
+      const outlineContent = narrativeContext.activeNode?.content || '（根据用户日记与已发生剧情自然推进。）';
+      const storyPlanRecord = await this._getOrCreateStoryPlan({
+        segmentId,
+        dayNumber: segment.day_number,
+        aiContext,
+        parsed,
+        mappingDesc,
+        narrativeContext,
+        entityMemory,
+        foreshadowing,
+        chapterPurpose: this._getChapterPurpose(chapter ? chapter.chapter_number : 0),
+        encounter: null,
+        reuseExisting: true,
+      })
 
       // Prompt 拼装（isRegenerate=true，含五层记忆）
       const prompt = this.promptBuilder.build({
@@ -465,7 +541,9 @@ class StoryEngine {
         chapterTitle: chapter ? chapter.title : '',
         chapterPurpose: this._getChapterPurpose(chapter ? chapter.chapter_number : 0),
         outlineContent,
-        branchGuidance: this._getBranchGuidance(outlineNodes),
+        branchGuidance: narrativeContext.choices.length
+          ? narrativeContext.choices.map(item => item.effect || item.description).join('；')
+          : '（尚无已选择的分支。）',
         isNewChapter: false,
         summaries,
         ragResults,
@@ -476,6 +554,8 @@ class StoryEngine {
         rawText: diaryText,
         dailyEvents: parsed.events,
         coverageKeywords,
+        narrativeContext,
+        storyPlan: storyPlanRecord.plan,
         mappingDesc,
         encounterTitle: null,
         encounterContent: null,
@@ -507,34 +587,22 @@ class StoryEngine {
       // 解析 AI 输出：分离故事正文和日记引用标注
       const parsed2 = this._parseStoryAndReferences(draftResult.content);
 
-      // 审查 — 只审查正文部分
-      const reviewResult = await this.reviewLoop.run(
-        parsed2.content,
-        prompt.systemPrompt,
-        aiContext.adapter,
-        aiContext.apiKey,
-        aiContext.baseUrl,
-        { temperature: 0.3, maxTokens: 3000 }
-      );
-
-      if (!reviewResult.passed) {
+      const contractResult = await this._runSceneContractPipeline(parsed2.content, prompt, aiContext)
+      if (!contractResult.success) {
+        await this._recordPlanReview(storyPlanRecord.id, {
+          findings: contractResult.findings || [], repairCount: Math.max(0, (contractResult.reviewCount || 1) - 1),
+          finalVerificationStatus: 'failed',
+        });
         await this.segmentRepo.updateStatus(segmentId, 'generate_failed');
         return {
           success: false,
           segmentId,
-          error: `内容审查未通过：${(reviewResult.issues || []).join('；') || '请重新生成'}`,
+          error: contractResult.error,
           errorCode: 'E007',
         };
       }
 
-      // 润色
-      let finalContent = reviewResult.finalContent;
-      const polishResult = await this._polish(
-        finalContent, prompt.systemPrompt, aiContext, user
-      );
-      if (polishResult.success && polishResult.content) {
-        finalContent = polishResult.content;
-      }
+      let finalContent = await this._polishWithRollback(contractResult.content, prompt, aiContext, user)
 
       const qualityResult = await this._enforceContentQuality(finalContent, {
         systemPrompt: prompt.systemPrompt,
@@ -542,6 +610,8 @@ class StoryEngine {
         user,
         dailyEvents: parsed.events,
         coverageKeywords,
+        continuityContext: prompt.continuityContext,
+        storyPlanContext: prompt.storyPlanContext,
       });
       if (!qualityResult.success) {
         await this.segmentRepo.updateStatus(segmentId, 'generate_failed');
@@ -554,14 +624,41 @@ class StoryEngine {
       }
       finalContent = qualityResult.content;
 
+      const causalResult = await this._enforceDiaryCausalImpact(finalContent, {
+        systemPrompt: prompt.systemPrompt,
+        aiContext,
+        user,
+        dailyEvents: parsed.events,
+        coverageKeywords,
+        continuityContext: prompt.continuityContext,
+        storyPlanContext: prompt.storyPlanContext,
+        requireSemanticDiaryAudit: (parsed.events || []).length > 0 && !qualityResult.assessment?.semanticDiaryInfluenceVerified,
+      });
+      if (!causalResult.success) {
+        await this._recordPlanReview(storyPlanRecord.id, {
+          findings: [...(contractResult.findings || []), ...(causalResult.findings || [])],
+          repairCount: Math.max(0, (contractResult.reviewCount || 1) - 1) + (causalResult.rewritten ? 1 : 0),
+          finalVerificationStatus: 'failed',
+        });
+        await this.segmentRepo.updateStatus(segmentId, 'generate_failed');
+        return { success: false, segmentId, error: causalResult.error, errorCode: 'E007' };
+      }
+      finalContent = causalResult.content;
+      await this._recordPlanReview(storyPlanRecord.id, {
+        findings: [...(contractResult.findings || []), ...(causalResult.findings || [])],
+        repairCount: Math.max(0, (contractResult.reviewCount || 1) - 1) + (causalResult.rewritten ? 1 : 0),
+        finalVerificationStatus: 'passed',
+      });
+
       // 更新段落：映射先更新，正文、引用、审查轮次与状态再原子提交。
       await this.segmentRepo.updateMapping(segmentId, mappingDesc)
       await this.segmentRepo.commitDraft(segmentId, {
         content: finalContent,
         references: parsed2.references,
-        reviewCount: reviewResult.totalRounds,
+        reviewCount: contractResult.reviewCount,
         incrementRevision: true,
       })
+      await this.storyPlanRepo.markUsed(storyPlanRecord.id)
 
       return {
         success: true,
@@ -628,36 +725,8 @@ class StoryEngine {
 
       const dayCompleted = segment.day_number;
 
-      // 定稿后提取实体和伏笔（AI 模式优先，失败降级正则）
-      try {
-        if (segment.content) {
-          // 构建 AI 上下文（如果用户配置了 API Key）
-          let aiContext = null
-          try {
-            const user = await this.userRepo.get()
-            if (user?.api_key_encrypted && user?.ai_provider) {
-              aiContext = await this._getAIContext(user)
-            }
-          } catch (e) { /* 使用降级模式 */ }
-
-          // 4.1 修复：segment 没有 chapter_number 列，通过 chapter_id 查询章节
-          let chapterNumberForExtract = 0
-          if (segment.chapter_id) {
-            try {
-              const chapter = await this.chapterRepo.getById(segment.chapter_id)
-              chapterNumberForExtract = chapter?.chapter_number || 0
-            } catch (e) { /* ignore */ }
-          }
-          await this.memoExtractor.extract(
-            segment.content,
-            dayCompleted,
-            chapterNumberForExtract,
-            aiContext
-          )
-        }
-      } catch (e) {
-        console.warn('[StoryEngine] 记忆提取失败:', e)
-      }
+      // 定稿后统一刷新实体、伏笔、日终交接单与剧情图。saveEdit 复用同一路径。
+      await this._refreshFinalizedMemory(segment, segment.content)
 
       // S-2 修复：天数递增在此执行
       await this.progressTracker.updateProgress(dayCompleted);
@@ -746,6 +815,9 @@ class StoryEngine {
       // R3 修复：markFinalized 移到所有操作之后（同 finalize 修复逻辑）
       const dayCompleted = segment.day_number;
 
+      // 用户编辑后的正文是新的事实来源，必须覆盖旧记忆和交接单。
+      await this._refreshFinalizedMemory({ ...segment, content }, content)
+
       // S-4 修复：调用进度更新+章节边界检查
       await this.progressTracker.updateProgress(dayCompleted);
 
@@ -799,7 +871,101 @@ class StoryEngine {
     return segment ? segment.status : 'pending';
   }
 
+  async getPendingChoiceForNextDay() {
+    return this.narrativeGraph.getPendingChoiceForNextDay(await this.userRepo.get())
+  }
+
+  async chooseNextDestiny(nodeId, optionId) {
+    return this.narrativeGraph.choose(nodeId, optionId, await this.userRepo.get())
+  }
+
   // ===== 私有辅助方法 =====
+
+  async _getOrCreateStoryPlan({ segmentId, dayNumber, aiContext, parsed, mappingDesc, narrativeContext, entityMemory, foreshadowing, chapterPurpose, encounter, reuseExisting = false }) {
+    if (reuseExisting) {
+      const existing = await this.storyPlanRepo.getLatestForSegment(segmentId)
+      if (existing?.plan) return existing
+    }
+    const previousHandoff = await this.handoffRepo.getLatestBefore(dayNumber)
+    const choices = narrativeContext?.choices || []
+    const inputFingerprint = this._fingerprint({
+      dayNumber,
+      previousHandoffHash: previousHandoff?.source_content_hash || '',
+      events: parsed?.events || [],
+      mappingDesc: mappingDesc || '',
+      choices,
+      node: narrativeContext?.activeNode?.node_id || '',
+      encounter: encounter?.title || '',
+    })
+    const reusable = await this.storyPlanRepo.getReusable(segmentId, inputFingerprint)
+    if (reusable?.plan) return reusable
+
+    const plannerResult = await this.storyPlanner.plan({
+      dayNumber,
+      previousHandoff,
+      dailyEvents: parsed?.events || [],
+      mappingDesc,
+      narrativeText: narrativeContext?.text || '',
+      choices,
+      entityMemory,
+      foreshadowing,
+      chapterPurpose,
+      encounter,
+    }, aiContext)
+    return this.storyPlanRepo.upsert({
+      dayNumber,
+      segmentId,
+      previousHandoffDay: previousHandoff?.day_number ?? null,
+      plan: plannerResult.plan,
+      schemaVersion: plannerResult.plan?.schemaVersion || 1,
+      source: plannerResult.source,
+      inputFingerprint,
+      validationErrors: plannerResult.validationErrors,
+    })
+  }
+
+  async _refreshFinalizedMemory(segment, content) {
+    const dayCompleted = segment.day_number
+    let user = null
+    try { user = await this.userRepo.get() } catch (_) { /* keep fallback */ }
+    try {
+      let aiContext = null
+      if (user?.ai_provider && (USE_SERVERLESS_AI || user?.api_key_encrypted)) {
+        try { aiContext = await this._getAIContext(user) } catch (_) { /* fallback extraction */ }
+      }
+      let chapterNumber = 0
+      if (segment.chapter_id) {
+        try { chapterNumber = (await this.chapterRepo.getById(segment.chapter_id))?.chapter_number || 0 } catch (_) { /* no chapter */ }
+      }
+      let choiceContext = null
+      try {
+        const state = await this.narrativeGraph.getGenerationContext({ user, dayNumber: dayCompleted })
+        choiceContext = state.choices?.slice(-1)[0] || null
+      } catch (_) { /* no choice available */ }
+      await this.memoExtractor.extract(content, dayCompleted, chapterNumber, aiContext, {
+        segmentId: segment.id,
+        choiceContext,
+      })
+    } catch (error) {
+      // 记忆提取有自身 fallback；这里最后兜底，不能丢弃用户已确认的正文。
+      console.warn('[StoryEngine] 定稿记忆刷新失败:', error.message)
+    }
+    try {
+      if (user) await this.narrativeGraph.completeNodesForDay(dayCompleted, user)
+    } catch (error) {
+      console.warn('[StoryEngine] 剧情图状态更新失败:', error.message)
+    }
+  }
+
+  _fingerprint(value) {
+    const source = JSON.stringify(value)
+    let hash = 2166136261
+    for (let index = 0; index < source.length; index++) {
+      hash ^= source.charCodeAt(index)
+      hash = Math.imul(hash, 16777619)
+    }
+    return `plan-${(hash >>> 0).toString(16)}-${source.length}`
+  }
 
   /**
    * 构建 AI 调用上下文
@@ -807,11 +973,14 @@ class StoryEngine {
    * @private
    */
   async _getAIContext(user) {
-    const AdapterClass = getAdapterClass(user.ai_provider);
+    const AdapterClass = getAdapterClass(USE_SERVERLESS_AI ? 'deepseek' : user.ai_provider);
     if (!AdapterClass) {
       throw new Error(`不支持的 AI 提供商: ${user.ai_provider}`);
     }
     const adapter = new AdapterClass();
+    if (USE_SERVERLESS_AI) {
+      return { adapter, apiKey: null, baseUrl: '/api/ai' };
+    }
     const apiKey = await Crypto.decrypt(user.api_key_encrypted);
     // 7.3 修复：解密失败防御——apiKey 为 null 时抛异常，触发降级
     if (!apiKey) {
@@ -831,11 +1000,30 @@ class StoryEngine {
    */
   async _enforceContentQuality(content, context) {
     let currentContent = String(content || '').trim();
-    const maxRepairs = 3;
+    // Length/ending repairs are a last resort. Narrative causality must not
+    // enter this legacy loop: V2 delegates it to the single scene-contract
+    // Rewriter below, preventing repeated keyword-stuffing rewrites.
+    const maxRepairs = 1;
 
     for (let attempt = 0; attempt <= maxRepairs; attempt++) {
       const assessment = ContentQualityGate.assess(currentContent, context.coverageKeywords);
       if (assessment.valid) {
+        return { success: true, content: currentContent, assessment };
+      }
+
+      // 关键词是确定性兜底，但小说会把“线索笔记”自然改写成“记录页”等表达。
+      // 当唯一问题只是字面未命中时，交给低温审计确认日记是否真正改变了场景、行动或后果，
+      // 避免为了通过规则而把用户日记机械塞进正文。
+      if (this._hasOnlyCoverageGap(assessment)) {
+        const semanticAudit = await this._verifySemanticDiaryInfluence(currentContent, context);
+        if (semanticAudit.passed) {
+          assessment.semanticDiaryInfluenceVerified = true;
+          assessment.semanticDiaryEvidence = semanticAudit.evidence;
+          return { success: true, content: currentContent, assessment };
+        }
+        // Do not retry by forcing literal diary keywords into prose. The
+        // subsequent causal-contract stage will make one evidence-based repair
+        // and re-audit it. This preserves the V2 single-Rewriter invariant.
         return { success: true, content: currentContent, assessment };
       }
 
@@ -860,7 +1048,7 @@ class StoryEngine {
           apiKey: context.aiContext.apiKey,
           baseUrl: context.aiContext.baseUrl,
           systemPrompt: context.systemPrompt,
-          userPrompt: repairPrompt,
+          userPrompt: `${repairPrompt}\n\n【不得违反的既有叙事事实】\n${context.continuityContext || ''}`,
           temperature: 0.2,
           // 使用用户的模型输出预算；质量闸门不再因正文过长而拒绝写入。
           maxTokens: context.user.ai_max_tokens || 2000,
@@ -885,6 +1073,162 @@ class StoryEngine {
     return { success: false, error: '内容质量修复失败，请重新生成' };
   }
 
+  _hasOnlyCoverageGap(assessment) {
+    return assessment?.reasons?.length === 1
+      && assessment.reasons[0].startsWith('当天日记关键词覆盖不足');
+  }
+
+  async _verifySemanticDiaryInfluence(content, context) {
+    const prompt = `你是严格的日记影响审计员。判断下列小说正文是否把当天日记的核心事件实质转化为剧情中的场景、行动、关系变化或后果。允许文学化改写和同义表达；仅仅提到模糊概念不算。
+
+【当天日记事件】
+${(context.dailyEvents || []).map((item, index) => `${index + 1}. ${item}`).join('\n') || '无'}
+
+【用户明确标注的实体】
+${(context.coverageKeywords || []).join('、') || '无'}
+
+【小说正文】
+${content}
+
+只输出 JSON：{"passed":true或false,"issues":["未体现的事件或实体"],"evidence":"正文中的具体证据"}`;
+    try {
+      const result = await ErrorHandler.callWithRetry(async () => context.aiContext.adapter.chat({
+        apiKey: context.aiContext.apiKey,
+        baseUrl: context.aiContext.baseUrl,
+        systemPrompt: '你只做事实核对。输出必须是严格 JSON，不要添加任何解释。',
+        userPrompt: prompt,
+        temperature: 0,
+        maxTokens: 700,
+        jsonMode: true,
+      }), '日记影响语义审计');
+      if (!result.success || !result.content) return { passed: false, evidence: '' };
+      const parsed = this.reviewLoop._parseReviewJson(result.content);
+      return {
+        passed: parsed.passed === true,
+        evidence: String(parsed.evidence || parsed.suggestions || ''),
+        issues: Array.isArray(parsed.issues) ? parsed.issues : [],
+      };
+    } catch (_) {
+      // 审计不可用时保持保守策略，继续原有的修复流程。
+      return { passed: false, evidence: '' };
+    }
+  }
+
+  /**
+   * 对每个含日记事件的日子验证日记是否真正改变了剧情。
+   * 只有审计失败时才额外调用 Rewriter；避免把“提到日记关键词”误当作因果影响。
+   * @private
+   */
+  async _enforceDiaryCausalImpact(content, context) {
+    if (!context.requireSemanticDiaryAudit || !(context.dailyEvents || []).length) {
+      return { success: true, content };
+    }
+
+    const firstAudit = await this._verifySemanticDiaryInfluence(content, context);
+    if (firstAudit.passed) return { success: true, content, semanticAudit: firstAudit, findings: [] };
+
+    const diaryFinding = {
+      code: 'C102', severity: 'P0', contractId: 'diary-causality',
+      issue: `当天日记没有形成可观察的行动、状态变化或后果：${(firstAudit.issues || []).join('；') || '语义审计未确认因果影响'}`,
+      evidence: firstAudit.evidence || '日记影响语义审计未找到可验证证据',
+      repairInstruction: '逐项补足当天日记事件的实际行动、可观察状态变化及其后续后果；仅提到关键词不算完成。',
+    };
+
+    const rewritten = await this.storyRewriter.rewrite({
+      content,
+      findings: [diaryFinding],
+      systemPrompt: context.systemPrompt,
+      aiContext: context.aiContext,
+      storyPlanContext: context.storyPlanContext,
+      continuityContext: context.continuityContext,
+    });
+    if (!rewritten.success) {
+      return { success: false, content, findings: [diaryFinding], error: rewritten.error || '日记因果修复失败' };
+    }
+
+    const contractVerification = await this.reviewLoop.audit(
+      rewritten.content, context.systemPrompt, context.aiContext.adapter,
+      context.aiContext.apiKey, context.aiContext.baseUrl,
+      { continuityContext: context.continuityContext, storyPlanContext: context.storyPlanContext, hardOnly: true }
+    );
+    if (!contractVerification.passed) {
+      return { success: false, content: rewritten.content, findings: [diaryFinding, ...(contractVerification.findings || [])], rewritten: true, error: this._formatCriticalError(contractVerification.findings) };
+    }
+
+    const secondAudit = await this._verifySemanticDiaryInfluence(rewritten.content, context);
+    if (!secondAudit.passed) {
+      return {
+        success: false,
+        content: rewritten.content,
+        findings: [diaryFinding],
+        rewritten: true,
+        error: `日记因果验收未通过：${(secondAudit.issues || []).join('；') || '未找到行动—状态变化—后果链'}`,
+      };
+    }
+    return { success: true, content: rewritten.content, semanticAudit: secondAudit, findings: [diaryFinding], rewritten: true };
+  }
+
+  async _recordPlanReview(planId, payload) {
+    try {
+      if (planId && typeof this.storyPlanRepo.recordReview === 'function') {
+        await this.storyPlanRepo.recordReview(planId, payload);
+      }
+    } catch (error) {
+      // 审计证据持久化失败不能把已经通过的正文伪装成未生成；保留日志供排障。
+      console.warn('[StoryEngine] 审查证据保存失败:', error.message);
+    }
+  }
+
+  // V2：Critical 只给分级证据，Rewriter 是唯一修改正文的角色。
+  async _runSceneContractPipeline(content, prompt, aiContext) {
+    const first = await this.reviewLoop.audit(
+      content, prompt.systemPrompt, aiContext.adapter, aiContext.apiKey, aiContext.baseUrl,
+      { continuityContext: prompt.continuityContext, storyPlanContext: prompt.storyPlanContext }
+    )
+    if (first.systemError) {
+      return { success: false, content, reviewCount: 1, error: this._formatCriticalError(first.findings) }
+    }
+    const actionable = first.findings.filter(item => ['P0', 'P1'].includes(item.severity))
+    if (!actionable.length) return { success: true, content, reviewCount: 1, findings: first.findings }
+
+    const rewritten = await this.storyRewriter.rewrite({
+      content, findings: actionable, systemPrompt: prompt.systemPrompt, aiContext,
+      storyPlanContext: prompt.storyPlanContext, continuityContext: prompt.continuityContext,
+    })
+    if (!rewritten.success) {
+      return { success: false, content, reviewCount: 1, error: `剧情合同修复失败：${rewritten.error || '未返回正文'}` }
+    }
+
+    // 修复后只复核 P0。P1 可记录为建议，不能再次开启无穷改稿循环。
+    const verified = await this.reviewLoop.audit(
+      rewritten.content, prompt.systemPrompt, aiContext.adapter, aiContext.apiKey, aiContext.baseUrl,
+      { continuityContext: prompt.continuityContext, storyPlanContext: prompt.storyPlanContext, hardOnly: true }
+    )
+    if (!verified.passed) {
+      return { success: false, content: rewritten.content, reviewCount: 2, error: this._formatCriticalError(verified.findings) }
+    }
+    return { success: true, content: rewritten.content, reviewCount: 2, findings: [...first.findings, ...verified.findings] }
+  }
+
+  _formatCriticalError(findings) {
+    const messages = (findings || []).filter(item => item.severity === 'P0').map(item => `[${item.code}] ${item.issue}`)
+    return `内容审查未通过：${messages.join('；') || 'Critical 未能确认正文符合剧情合同'}`
+  }
+
+  async _polishWithRollback(content, prompt, aiContext, user) {
+    const polished = await this._polish(content, prompt.systemPrompt, aiContext, user, prompt.continuityContext, prompt.storyPlanContext)
+    if (!polished.success || !polished.content) return content
+    const verification = await this.reviewLoop.audit(
+      polished.content, prompt.systemPrompt, aiContext.adapter, aiContext.apiKey, aiContext.baseUrl,
+      { continuityContext: prompt.continuityContext, storyPlanContext: prompt.storyPlanContext, hardOnly: true, maxTokens: 1000 }
+    )
+    if (!verification.passed) {
+      console.warn('[StoryEngine] 润色破坏 P0 剧情合同，回退到润色前版本:', this._formatCriticalError(verification.findings))
+      return content
+    }
+    return polished.content
+  }
+
   _getQualityRepairAction(assessment) {
     if (assessment.charCount < ContentQualityGate.limits.minChars || !assessment.hasCompleteEnding) {
       return '续写并补足：在不改变已有剧情的前提下补齐必要场景、行动和收束句，形成完整段落。';
@@ -896,7 +1240,7 @@ class StoryEngine {
    * 润色步骤（步骤 7）
    * @private
    */
-  async _polish(content, systemPrompt, aiContext, user) {
+  async _polish(content, systemPrompt, aiContext, user, continuityContext = '', storyPlanContext = '') {
     try {
       const polishResult = await ErrorHandler.callWithRetry(async () => {
         return aiContext.adapter.chat({
@@ -904,8 +1248,9 @@ class StoryEngine {
           baseUrl: aiContext.baseUrl,
           systemPrompt,
           // 使用 split-join 替换防止 $ 注入
-          userPrompt: PromptBuilder.POLISH_PROMPT.split('{content}').join(content),
-          temperature: 0.7,
+          userPrompt: `${PromptBuilder.POLISH_PROMPT.split('{content}').join(content)}\n\n【不得违反的既有叙事事实】\n${continuityContext}\n\n【不得破坏的当天剧情计划】\n${storyPlanContext}`,
+          // 润色只做低风险表达优化，禁止用高温度重新编排剧情。
+          temperature: Math.min(Number(user.ai_temperature || 0.5), 0.4),
           maxTokens: user.ai_max_tokens || 2000,
         });
       }, '润色');
@@ -922,6 +1267,40 @@ class StoryEngine {
       console.warn('[StoryEngine] 润色异常，使用审查后内容:', e.message);
       return { success: true, content: content };
     }
+  }
+
+  // 当 Critical 能定位计划违例但没有提供可用 revised_content 时，使用一次
+  // 定向终稿修复把“发现问题”真正转化为“修复问题”。修复后仍须重新审查。
+  async _repairPlanCompliance(content, issues, systemPrompt, aiContext, storyPlanContext) {
+    const issueList = (issues || []).map(item => `- ${item}`).join('\n') || '- 未通过当天剧情计划复核'
+    const prompt = `你是连载小说的终稿修复编辑。请只输出修复后的完整小说正文，不要标题、说明、JSON 或引用标注。
+
+【Critical 发现的必须修复问题】
+${issueList}
+
+【当天剧情计划（不可违反）】
+${storyPlanContext}
+
+【修复规则】
+1. 原文只是素材，不是必须保留的结构；若无法逐项满足验收，请从开场起重写完整一天，不能只在原文上补一两句。
+2. 必须逐项修复上方每一个问题；尤其要把“上一日尚未完成的状态 → 今天的首个行动 → 行动带来的代价/新信息 → 结尾钩子”写成一条可读的因果链。
+3. 每项日记事件必须让角色实际行动，并明确改变风险、资源、关系、信息、时间成本或下一步目标；只提到词语不算完成。
+4. 用户选择必须带来可观察的风险、损失、暴露或新义务，不能以安全退走、无代价获得线索来替代。
+5. 不得为修复而删除既有世界观、角色、物品、有效情节或用户选择后果；不得用未经交代的时间跳跃掩盖衔接。
+6. 结尾必须直接承接当天的调查目标，并留下下一天可执行的未完成行动。
+7. 正文不少于 800 字，完整结束。
+
+【待修复正文】
+${content}`
+    const result = await ErrorHandler.callWithRetry(async () => aiContext.adapter.chat({
+      apiKey: aiContext.apiKey,
+      baseUrl: aiContext.baseUrl,
+      systemPrompt,
+      userPrompt: prompt,
+      temperature: 0.2,
+      maxTokens: 3200,
+    }), '剧情计划合规修复')
+    return result.success && result.content ? { success: true, content: result.content.trim() } : { success: false, content: content }
   }
 
   /**

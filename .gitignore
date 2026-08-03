@@ -10,6 +10,7 @@ ios/
 *.base64
 *.log
 test-screenshots/
+test-reports/
 settings-screenshot.png
 
 # Design assets (not part of codebase)
@@ -20,6 +21,7 @@ diary-app-ui-research/
 
 # Secrets
 api_key.txt
+deepseek.txt
 .env
 .env.*
 !.env.example

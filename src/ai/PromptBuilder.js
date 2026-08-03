@@ -26,6 +26,7 @@ const REVIEW_PROMPT_ROUND_1 = `你是一位严格的小说编辑，精通《诡�
 4. 文风一致性：是否符合诡秘悬疑风格？是否有出戏的表达？
 5. 衔接性：是否与前 3 天的剧情自然衔接？时间线是否连贯？
 6. 节奏感：是否有适当的悬念和起伏？是否推进了剧情？
+7. 剧情计划遵循：是否承接指定开场、执行日记因果与命运后果，并避免禁止改变的事实？
 
 【待审查段落】
 {generated_content}
@@ -42,7 +43,9 @@ const REVIEW_PROMPT_ROUND_1 = `你是一位严格的小说编辑，精通《诡�
   "severity": "high"或"medium"或"low",
   "suggestions": "针对问题的具体修改建议，如果不通过则必须给出修改方向",
   "revised_content": "如果不通过，请在此字段中输出修改后的完整段落；如果通过，此字段为空字符串"
-}`;
+}
+
+输出必须以 { 开始、以 } 结束；禁止使用 Markdown 代码块、审查说明或“通过/不通过”的自然语言。`;
 
 /**
  * 审查 Prompt — 轮次 2（审查修改稿）
@@ -55,6 +58,7 @@ const REVIEW_PROMPT_ROUND_2 = `你是一位严格的小说编辑，精通《诡�
 2. 前后文衔接：修改部分与未修改部分的衔接是否自然？
 3. 叙事流畅性：整体阅读体验是否流畅？有无突兀的转折？
 4. 重复第二轮审查维度1-6的基础检查。
+5. 剧情计划遵循：不得因修订而破坏跨日承接、用户选择后果或日记因果。
 
 【上一轮审查发现的问题】
 {previous_issues}
@@ -69,7 +73,9 @@ const REVIEW_PROMPT_ROUND_2 = `你是一位严格的小说编辑，精通《诡�
   "severity": "high"或"medium"或"low",
   "suggestions": "修改建议",
   "revised_content": "如果不通过，输出修改后的完整段落；如果通过，为空字符串"
-}`;
+}
+
+输出必须以 { 开始、以 } 结束；禁止使用 Markdown 代码块、审查说明或“通过/不通过”的自然语言。`;
 
 /**
  * 摘要生成 Prompt
@@ -244,6 +250,12 @@ class PromptBuilder {
 
 请根据以上映射结果，将今日经历自然融入主角的故事中。不要生硬地照搬映射结果，而是将其作为剧情素材进行文学化创作。`;
 
+    this.STORY_PLAN_TEMPLATE = `【当天剧情执行计划（最高优先级，必须执行）】
+
+{story_plan}
+
+这不是可选参考。正文必须承接开场、让日记和用户选择造成后果，并且不得违反“禁止改变”。场景合同中的每个动作和状态变化必须发生；可改变文学表达，不可删除因果。`;
+
     // 放在 Prompt 末尾，降低长上下文导致模型忽略当日日记的概率。
     this.DAILY_COVERAGE_TEMPLATE = `【最终硬约束：当日日记必须覆盖】
 
@@ -296,7 +308,7 @@ class PromptBuilder {
 {regenerate_hint}`;
 
     // 重新生成提示（追加到生成指令末尾）
-    this.REGENERATE_HINT = `9. 【重要】这是重新生成请求，请生成一个与之前版本完全不同的剧情走向和表达方式，但保持世界观和行为映射一致。
+    this.REGENERATE_HINT = `9. 【重要】这是重新生成请求。可以改变措辞、场景表达、对话和局部节奏，但不得推翻当天剧情执行计划、上一日承接点、用户选择、日记核心因果或既有硬事实。
 `;
 
     // ===== Token 预算配置（升级：充分利用 DeepSeek 64K 窗口）=====
@@ -353,6 +365,8 @@ class PromptBuilder {
     return {
       systemPrompt: adjusted.systemPrompt,
       userPrompt: adjusted.userPrompt,
+      continuityContext: this._buildContinuityContext(params),
+      storyPlanContext: this._buildStoryPlan(params.storyPlan),
       tokenEstimate,
     };
   }
@@ -386,6 +400,9 @@ class PromptBuilder {
     const parts = [];
 
     parts.push(this._buildSummaryMemory(params.summaries));
+    if (params.narrativeContext?.text) {
+      parts.push(`【叙事状态图（必须遵守）】\n${params.narrativeContext.text}`)
+    }
     parts.push(this._buildRagMemory(params.ragResults));
     // 新增：动态 RAG（过去故事事件检索）
     if (params.storyRagResults && params.storyRagResults.length > 0) {
@@ -401,6 +418,7 @@ class PromptBuilder {
     }
     parts.push(this._buildImmediateContext(params.immediateContext, params.currentDay));
     parts.push(this._buildDiaryMapping(params.rawText, params.mappingDesc));
+    if (params.storyPlan) parts.push(this._buildStoryPlan(params.storyPlan));
 
     if (params.encounterContent) {
       parts.push(this._buildEncounter(params.encounterTitle, params.encounterContent));
@@ -412,6 +430,18 @@ class PromptBuilder {
     parts.push(this._buildDailyCoverageChecklist(params.dailyEvents, params.coverageKeywords));
 
     return parts.filter(p => p).join('\n\n');
+  }
+
+  _buildContinuityContext(params) {
+    const parts = []
+    if (params.narrativeContext?.text) parts.push(params.narrativeContext.text)
+    parts.push(this._buildSummaryMemory(params.summaries))
+    if (params.storyRagResults?.length) parts.push(this._buildStoryRagMemory(params.storyRagResults))
+    if (params.entityMemory) parts.push(this._buildEntityMemory(params.entityMemory))
+    if (params.foreshadowing) parts.push(this._buildForeshadowing(params.foreshadowing))
+    parts.push(this._buildImmediateContext(params.immediateContext, params.currentDay))
+    if (params.storyPlan) parts.push(this._buildStoryPlan(params.storyPlan))
+    return parts.filter(Boolean).join('\n\n')
   }
 
   _buildSummaryMemory(summaries) {
@@ -496,6 +526,48 @@ class PromptBuilder {
     let result = PromptBuilder._safeReplace(this.DIARY_MAPPING_TEMPLATE, '{raw_text}', rawText);
     result = PromptBuilder._safeReplace(result, '{mapping_lines}', mappingLines);
     return result;
+  }
+
+  _buildStoryPlan(plan) {
+    if (!plan || typeof plan !== 'object') return ''
+    if (Number(plan.schemaVersion) === 2) return this._buildSceneContract(plan)
+    const lines = []
+    const opening = plan.openingBridge || {}
+    lines.push(`【开场承接】${opening.sourceFact || '承接上一日结尾'}；第一场景：${opening.firstSceneAction || '自然继续'}`)
+    const anchors = Array.isArray(plan.continuityAnchors) ? plan.continuityAnchors : []
+    if (anchors.length) lines.push(`【连续性锚点】\n${anchors.map(item => `- ${item.fact} → ${item.requiredUsage}`).join('\n')}`)
+    const causality = Array.isArray(plan.diaryCausality) ? plan.diaryCausality : []
+    if (causality.length) lines.push(`【日记必须造成的因果】\n${causality.map(item => `- ${item.diaryEvent} → ${item.worldAction} → 后果：${item.storyConsequence}`).join('\n')}`)
+    if (plan.choiceConsequence) lines.push(`【用户命运后果】${plan.choiceConsequence.choice}；${plan.choiceConsequence.consequence}`)
+    const beats = Array.isArray(plan.beats) ? plan.beats : []
+    if (beats.length) lines.push(`【剧情节拍】\n${beats.map(item => `${item.order}. ${item.action}（状态变化：${item.stateChange}）`).join('\n')}`)
+    if (plan.endingTarget?.state) lines.push(`【今日结束状态】${plan.endingTarget.state}${plan.endingTarget.nextHook ? `；下一日钩子：${plan.endingTarget.nextHook}` : ''}`)
+    const forbidden = Array.isArray(plan.forbiddenChanges) ? plan.forbiddenChanges : []
+    if (forbidden.length) lines.push(`【禁止改变】\n${forbidden.map(item => `- ${item}`).join('\n')}`)
+    return PromptBuilder._safeReplace(this.STORY_PLAN_TEMPLATE, '{story_plan}', lines.join('\n\n'))
+  }
+
+  _buildSceneContract(plan) {
+    const lines = []
+    const opening = plan.openingContract || {}
+    lines.push(`【开场合同】上一日状态：${opening.previousState || '承接上一日结尾'}\n第一动作：${opening.requiredFirstAction || '自然承接'}\n验收：${opening.completionEvidence || '正文开头完成该动作及直接结果'}`)
+    const scenes = Array.isArray(plan.scenes) ? plan.scenes : []
+    if (scenes.length) {
+      lines.push(`【必须按因果完成的场景】\n${scenes.map((scene, index) => {
+        const diary = Array.isArray(scene.diaryEventIds) && scene.diaryEventIds.length ? `；对应日记：${scene.diaryEventIds.join('、')}` : ''
+        const choice = Array.isArray(scene.choiceEffectIds) && scene.choiceEffectIds.length ? `；对应选择后果：${scene.choiceEffectIds.join('、')}` : ''
+        return `${index + 1}. ${scene.sceneId}｜${scene.time}｜${scene.location}\n   目的：${scene.purpose}\n   必须动作：${(scene.requiredActions || []).join('；')}\n   必须状态变化：${(scene.stateChanges || []).join('；')}${diary}${choice}`
+      }).join('\n')}`)
+    }
+    const transitions = Array.isArray(plan.transitionContracts) ? plan.transitionContracts : []
+    if (transitions.length) lines.push(`【场景桥接】\n${transitions.map(item => `- ${item.fromSceneId} → ${item.toSceneId}：${item.mustExplain}`).join('\n')}`)
+    if (plan.choiceConsequence) lines.push(`【用户命运后果】${plan.choiceConsequence.choice}；类型：${plan.choiceConsequence.impactType}；具体代价：${plan.choiceConsequence.consequence}`)
+    const ending = plan.endingContract || {}
+    lines.push(`【结束合同】结果状态：${ending.resultingState || '推进当前目标'}；下一步动作：${ending.nextAction || '留下可执行行动'}；阻碍/风险：${ending.blockingRisk || '保留与主线相关的未知风险'}`)
+    const forbidden = Array.isArray(plan.forbiddenChanges) ? plan.forbiddenChanges : []
+    if (forbidden.length) lines.push(`【禁止改变】\n${forbidden.map(item => `- ${item}`).join('\n')}`)
+    lines.push('【写前静默自检】S1 开场动作已完成；每个 D 日记编号都有动作与后果；选择后果出现明确代价；跨场景已桥接；结尾建立下一步行动与阻碍。不要输出本检查表。')
+    return PromptBuilder._safeReplace(this.STORY_PLAN_TEMPLATE, '{story_plan}', lines.join('\n\n'))
   }
 
   _buildEncounter(title, content) {

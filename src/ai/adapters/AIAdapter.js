@@ -86,7 +86,10 @@ class BaseAdapter {
    * 对话补全（核心方法）。子类共享实现，差异点通过覆盖钩子方法实现。
    */
   async chat({ apiKey, baseUrl, systemPrompt, userPrompt,
-               temperature = 0.8, maxTokens = 2000 }) {
+               temperature = 0.8, maxTokens = 2000, jsonMode = false }) {
+    if (baseUrl === '/api/ai') {
+      return this._chatViaServerless({ systemPrompt, userPrompt, temperature, maxTokens, jsonMode });
+    }
     const url = `${baseUrl || this.defaultBaseUrl}/v1/chat/completions`;
 
     const body = {
@@ -99,6 +102,7 @@ class BaseAdapter {
       max_tokens: maxTokens,
       stream: false,
     };
+    if (jsonMode) body.response_format = { type: 'json_object' };
 
     try {
       const response = await this._fetchWithTimeout(url, {
@@ -136,6 +140,18 @@ class BaseAdapter {
    * 子类可覆盖 testSystemPrompt / testUserPrompt 以适配不同模型的语言偏好。
    */
   async testConnection(apiKey, baseUrl) {
+    if (baseUrl === '/api/ai') {
+      try {
+        const response = await this._fetchWithTimeout('/api/ai', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'health' }),
+        }, this.timeout);
+        return { success: response.ok, error: response.ok ? undefined : 'AI 服务尚未就绪' };
+      } catch (error) {
+        return this._handleNetworkError(error);
+      }
+    }
     const result = await this.chat({
       apiKey,
       baseUrl,
@@ -169,6 +185,29 @@ class BaseAdapter {
       return await fetch(url, { ...options, signal: controller.signal });
     } finally {
       clearTimeout(timeoutId);
+    }
+  }
+
+  async _chatViaServerless({ systemPrompt, userPrompt, temperature, maxTokens, jsonMode = false }) {
+    try {
+      const response = await this._fetchWithTimeout('/api/ai', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'chat',
+          systemPrompt,
+          userPrompt,
+          temperature: this._adjustTemperature(temperature),
+          maxTokens,
+          jsonMode: Boolean(jsonMode),
+        }),
+      }, this.timeout);
+      if (!response.ok) return this._handleHttpError(response);
+      const data = await response.json();
+      if (!data?.content) return { success: false, error: 'AI 返回内容为空', errorCode: 'E007' };
+      return { success: true, content: data.content.trim(), tokensUsed: data.tokensUsed };
+    } catch (error) {
+      return this._handleNetworkError(error);
     }
   }
 
