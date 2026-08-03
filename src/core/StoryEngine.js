@@ -1092,6 +1092,7 @@ ${content}
         userPrompt: prompt,
         temperature: 0,
         maxTokens: 700,
+        jsonMode: true,
       }), '日记影响语义审计');
       if (!result.success || !result.content) return { passed: false, evidence: '' };
       const parsed = this.reviewLoop._parseReviewJson(result.content);

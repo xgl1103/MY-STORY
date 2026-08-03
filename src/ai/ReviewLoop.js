@@ -139,7 +139,7 @@ ${hardOnly ? '本次只报告 P0；P1/P2 不得作为失败理由。' : ''}
 }
 当不存在 P0${hardOnly ? '' : ' 或 P1'} 时 passed 为 true；不要输出 revised_content、Markdown 或任何说明。`
     const result = await ErrorHandler.callWithRetry(async () => adapter.chat({
-      apiKey, baseUrl, systemPrompt, userPrompt: prompt, temperature: 0, maxTokens,
+      apiKey, baseUrl, systemPrompt, userPrompt: prompt, temperature: 0, maxTokens, jsonMode: true,
     }), '场景合同审查')
     if (!result.success || !result.content) {
       return { passed: false, findings: [{ code: 'C109', severity: 'P0', contractId: 'system', issue: 'Critical 调用失败', evidence: result.error || '无响应', repairInstruction: '稍后重试审查，不能将未审查正文标记为通过。' }], systemError: true }
@@ -216,6 +216,7 @@ ${hardOnly ? '本次只报告 P0；P1/P2 不得作为失败理由。' : ''}
           userPrompt: prompt,
           temperature: reviewParams.temperature || 0.3,
           maxTokens: reviewParams.maxTokens || 3000,
+          jsonMode: true,
         });
       }, `审查轮次${roundsUsed}`);
 

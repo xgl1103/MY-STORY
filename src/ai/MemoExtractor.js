@@ -100,7 +100,8 @@ export class MemoExtractor {
       systemPrompt: SYSTEM_PROMPT,
       userPrompt,
       temperature: 0.3,
-      maxTokens: 1500,
+      maxTokens: 1800,
+      jsonMode: true,
     })
 
     // 检查 AI 调用是否成功——失败时抛异常以触发 catch 块中的 regex 回退

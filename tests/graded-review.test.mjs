@@ -4,7 +4,7 @@ import { createMockStoryEngine } from '../mock/index.js'
 
 const review = new ReviewLoop()
 const p2 = await review.audit('正文', '系统设定', {
-  async chat() { return { success: true, content: JSON.stringify({ passed: false, findings: [{ code: 'C108', severity: 'P2', contractId: 'style', issue: '心理描写偏薄', evidence: '缺少心理细节', repairInstruction: '可酌情补充' }] }) } },
+  async chat(args) { assert.equal(args.jsonMode, true, 'Critical must request JSON mode'); return { success: true, content: JSON.stringify({ passed: false, findings: [{ code: 'C108', severity: 'P2', contractId: 'style', issue: '心理描写偏薄', evidence: '缺少心理细节', repairInstruction: '可酌情补充' }] }) } },
 }, 'key', null, { storyPlanContext: '合同', continuityContext: '事实' })
 assert.equal(p2.passed, true, 'P2 文学建议不得阻断生成')
 
@@ -44,6 +44,7 @@ let semanticCalls = 0
 const causalAdapter = {
   async chat(args) {
     if (args.userPrompt.includes('日记影响审计员')) {
+      assert.equal(args.jsonMode, true, 'semantic diary audit must request JSON mode')
       semanticCalls++
       return { success: true, content: semanticCalls === 1
         ? JSON.stringify({ passed: false, issues: ['调班只被提及，没有带来调查时间或人情义务'], evidence: '正文只说同事愿意帮忙' })

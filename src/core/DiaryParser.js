@@ -50,6 +50,7 @@ class DiaryParser {
         userPrompt,
         temperature: 0.3,
         maxTokens: 500,
+        jsonMode: true,
       });
     }, '日记解析');
 

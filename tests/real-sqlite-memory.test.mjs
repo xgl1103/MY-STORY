@@ -47,14 +47,16 @@ worldRepo.outlineNodes = [
 ]
 
 const writerPrompts = []
+const memoCalls = []
 const storyBody = '林墨将铜制怀表放在桌上，陌生纹章在灯下泛出暗红色光泽。他没有遗忘此前的调查，也清楚主动追踪意味着风险。为了核对线索，他整理记录、拜访旧仓库，并将日常的疲惫化为谨慎行动。经过反复比对，他确认纹章属于失踪钟表匠留下的求救标记，铜制怀表正是开启暗门的钥匙。这个发现既解释了纹章来源，也让他明白接下来必须与可靠同伴合作。夜色落下时，林墨收起怀表，决定带着新的证据继续前行。'.repeat(6)
 
 const adapter = {
-  async chat({ systemPrompt, userPrompt }) {
+  async chat({ systemPrompt, userPrompt, jsonMode, maxTokens }) {
     if (systemPrompt.includes('日记分析助手')) {
       return { success: true, content: JSON.stringify({ events: ['整理调查记录'], detectedBehaviors: ['学习'], keywords: ['铜制怀表', '陌生纹章'] }) }
     }
     if (systemPrompt.includes('故事分析助手')) {
+      memoCalls.push({ jsonMode, maxTokens })
       const isDay6 = userPrompt.includes('第6天')
       return {
         success: true,
@@ -123,6 +125,9 @@ assert.equal(persistedPlans.every(plan => Array.isArray(JSON.parse(plan.review_f
 assert.equal(actualWriterPrompts.length, 7, '应捕获 7 次 Writer 调用')
 assert.ok(actualWriterPrompts.every(prompt => prompt.includes('当天剧情执行计划')), '每次 Writer 必须收到当天剧情计划')
 assert.equal((await StoryPlanRepository.getReusable(persistedPlans[0].segment_id, persistedPlans[0].input_fingerprint))?.status, 'used', '成功草稿计划应标记为 used')
+
+assert.equal(memoCalls.length, 7, 'each finalized day must invoke memory extraction')
+assert.equal(memoCalls.every(call => call.jsonMode === true && call.maxTokens === 1800), true, 'memory extraction must request JSON mode with its configured budget')
 
 console.log('REAL_SQLITE_MEMORY_PASS')
 console.log(JSON.stringify({
