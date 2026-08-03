@@ -104,7 +104,7 @@ Diary metadata: ${JSON.stringify(day.diary)}
 Chars: ${day.chars}
 Clock signal: ${day.containsClock}
 Plan: ${JSON.stringify(day.plan)}
-Handoff quality: ${day.handoffQuality}`).join('\n\n') : 'No completed day yet.'}
+Handoff: ${JSON.stringify(day.handoff)}`).join('\n\n') : 'No completed day yet.'}
 
 ## Result data
 ${JSON.stringify({ choice: report.choice, foreshadowAudit: report.foreshadowAudit, influenceAudit: report.influenceAudit, critical: report.critical, callCounts: report.callCounts }, null, 2)}
@@ -157,6 +157,8 @@ for (let index = 0; index < days.length; index++) {
         sceneCount: plan.plan?.scenes?.length || 0,
         repairCount: plan.repair_count || 0,
         finalVerificationStatus: plan.final_verification_status || null,
+        // 保留 Planner 本地校验的错误明细；fallback 时必须能回答“因为哪条 P 错误”。
+        validationErrors: plan.validationErrors || [],
         // Findings are diagnostic metadata only. Do not retain generated prose
         // quoted by the reviewer in a test artifact.
         reviewFindings: (plan.reviewFindings || []).map(finding => ({
@@ -166,7 +168,16 @@ for (let index = 0; index < days.length; index++) {
         })),
       } : null
     })(),
-    handoffQuality: (await repos.handoffRepo.getByDay(dayNumber))?.quality_status || null,
+    handoff: (await (async () => {
+      const handoff = await repos.handoffRepo.getByDay(dayNumber)
+      return handoff ? {
+        quality: handoff.quality_status || null,
+        source: handoff.source || null,
+        fallbackReason: handoff.fallback_reason || null,
+        // 只保留判定结论，不保留正文引用或原始交接内容。
+        issues: (handoff.qualityIssues || []).slice(0, 6),
+      } : null
+    }))(),
   })
   // 每完成一天就保存检查点；即使后续中断，已完成内容仍可作为测试案例复核。
   await saveReport()

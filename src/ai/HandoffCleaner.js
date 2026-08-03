@@ -2,9 +2,13 @@
 // 目标不是替 AI 再写一次剧情，而是在交接单进入 Planner 前阻止残句、空泛动作和
 // 明显截断文本继续污染后续计划。所有规则纯本地执行，不增加 AI 调用。
 
-const NON_ACTION = /^(?:待定|暂无|无|未知|继续推进|推进剧情|保持现状|等待后续|to be determined|tbd|unknown|continue the story|advance the plot|wait for more)$/i
+const NON_ACTION = /^(?:待定|暂无|无|未知|继续推进|推进剧情|保持现状|等待后续|继续调查|继续追查|查明真相|了解更多|了解情况|确认情况|to be determined|tbd|unknown|continue the story|advance the plot|wait for more|investigate further|find out more)$/i
 const LEADING_FRAGMENT = /^(?:[，。；：、\s"'“”‘’…—-]+|(?:的|了|着|和|但|而且|所以|于是|声|后|前|中|里)[，。；：、\s]*)+/u
-const TRAILING_FRAGMENT = /(?:[，、；：\-—…]|的|了|着|和|但|而且|所以|于是)$/u
+// 残句的强信号是“孤立标点”或“连接词收尾”。中文里以“了/着/的”结尾的句子
+// 通常是完整句（“他打开了门”“他站着”“这是林墨买到的”），不能当作截断，
+// 否则 AI 正常输出的交接动作会被错误降级为 fallback；真正不完整的输出由
+// Planner 的 P101 校验与场景合同审查继续兜底。
+const TRAILING_FRAGMENT = /(?:[，、；：\-—…]|和|但|而且|所以|于是|因为|然后|接着|以及|或者|却|并)$/u
 
 const string = value => String(value || '').replace(/\s+/g, ' ').trim()
 const unique = values => [...new Set(values.filter(Boolean))]
@@ -15,7 +19,7 @@ export class HandoffCleaner {
     const issues = []
     let wasCleaned = false
 
-    const cleanText = (value, field, { requireAction = false, maxLength = 180 } = {}) => {
+    const cleanText = (value, field, { requireAction = false, requireGoal = false, maxLength = 180 } = {}) => {
       const original = string(value)
       let result = original.replace(LEADING_FRAGMENT, '').trim()
       result = result.slice(0, maxLength).trim()
@@ -23,7 +27,7 @@ export class HandoffCleaner {
         wasCleaned = true
         issues.push(`${field}: 清除了残余前缀或超长文本`)
       }
-      if (!result || TRAILING_FRAGMENT.test(result) || (requireAction && !this._isActionable(result))) {
+      if (!result || TRAILING_FRAGMENT.test(result) || (requireAction && !this._isActionable(result)) || (requireGoal && !this._isGoal(result))) {
         if (original) issues.push(`${field}: 不是完整可执行动作`)
         return ''
       }
@@ -35,7 +39,8 @@ export class HandoffCleaner {
     const hardFacts = this._cleanTextArray(raw.hardFacts, 'hardFacts', issues)
     const prohibitedChanges = this._cleanTextArray(raw.prohibitedChanges, 'prohibitedChanges', issues)
     const unresolved = this._cleanThreads(raw.unresolvedThreads, unresolvedThreads)
-    const activeGoal = cleanText(raw.activeGoal, 'activeGoal', { requireAction: true }) || fallback.activeGoal
+    // activeGoal 是“当天目标”而非“动作”，只需非空、具体、可理解。
+    const activeGoal = cleanText(raw.activeGoal, 'activeGoal', { requireGoal: true }) || fallback.activeGoal
     const unfinishedAction = cleanText(raw.unfinishedAction, 'unfinishedAction', { requireAction: true })
     const immediateNextAction = cleanText(raw.immediateNextAction, 'immediateNextAction', { requireAction: true })
 
@@ -69,7 +74,14 @@ export class HandoffCleaner {
     // Models may phrase a concrete action with verbs outside a fixed Chinese
     // dictionary. Reject known placeholders, then let the downstream scene
     // contract verifier validate whether the action is actually executed.
-    return string(value).length >= 8 && !NON_ACTION.test(string(value))
+    // 长度门槛必须足够低：中文 5~7 字的短动作（“林墨打开铁门”“核对纹章图案”）
+    // 完全具体可执行，门槛过高会把合法交接单误判为 fallback。
+    return string(value).length >= 5 && !NON_ACTION.test(string(value))
+  }
+
+  _isGoal(value) {
+    const v = string(value)
+    return v.length >= 4 && !NON_ACTION.test(v)
   }
 
   _cleanEndingScene(value, fallback) {

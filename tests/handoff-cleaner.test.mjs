@@ -38,4 +38,44 @@ const multilingual = cleaner.clean({
 assert.equal(multilingual.qualityStatus, 'valid', '具体动作不能因动词语言不同被错误降级')
 assert.ok(fallback.handoff.hardFacts.some(item => item.includes('主动追踪纹章来源')), 'fallback 必须继承用户选择')
 
+// 回归：中文以“了/着/的”结尾的句子通常是完整句，不能被误判为截断残句。
+// 之前 TRAILING_FRAGMENT 把这类动作全部降级为 fallback，是真实 7 天测试中
+// Handoff 高频 fallback 的直接原因（例如 02-20 run 的 Day 1/Day 3）。
+const particleEnding = cleaner.clean({
+  activeGoal: '追查纹章来源',
+  unfinishedAction: '林墨将铁门打开了',
+  immediateNextAction: '林墨走进暗门后的通道继续探查',
+  hardFacts: ['怀表为铜制'],
+  prohibitedChanges: ['不得改变怀表材质'],
+}, { content })
+assert.equal(particleEnding.qualityStatus, 'valid', '以“了”结尾的完整动作必须通过')
+assert.equal(particleEnding.handoff.unfinishedAction, '林墨将铁门打开了')
+
+const shortAction = cleaner.clean({
+  activeGoal: '追查纹章来源',
+  unfinishedAction: '林墨打开铁门',
+  immediateNextAction: '林墨进入仓库探查',
+  hardFacts: ['铁门后有仓库'],
+  prohibitedChanges: ['不得改变仓库位置'],
+}, { content })
+assert.equal(shortAction.qualityStatus, 'valid', '5~7 字的具体短动作必须通过')
+
+const goalIsNotAction = cleaner.clean({
+  activeGoal: '追查纹章来源',
+  unfinishedAction: '林墨将怀表嵌入凹槽',
+  immediateNextAction: '林墨启动机关并确认风险',
+  hardFacts: ['怀表为铜制'],
+  prohibitedChanges: ['不得改变怀表材质'],
+}, { content })
+assert.equal(goalIsNotAction.qualityStatus, 'valid', 'activeGoal 是目标而非动作，不能按动作校验')
+
+const conjunctionTruncation = cleaner.clean({
+  activeGoal: '追查纹章来源',
+  unfinishedAction: '林墨查看线索，但',
+  immediateNextAction: '林墨继续追查',
+  hardFacts: ['线索指向北区'],
+  prohibitedChanges: ['不得改变线索指向'],
+}, { content })
+assert.equal(conjunctionTruncation.qualityStatus, 'fallback', '以连接词结尾的截断句仍必须 fallback')
+
 console.log('HANDOFF_CLEANER_TEST_PASS')
