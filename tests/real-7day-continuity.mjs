@@ -88,6 +88,8 @@ ${report.days.length ? report.days.map(day => `### Day ${day.day}
 Input: ${day.input}
 Chars: ${day.chars}
 Clock signal: ${day.containsClock}
+Plan: ${JSON.stringify(day.plan)}
+Handoff quality: ${day.handoffQuality}
 
 开头节选：${day.excerpt}
 
@@ -128,7 +130,14 @@ for (let index = 0; index < days.length; index++) {
     finalized: finalized.success,
     plan: (() => {
       const plan = repos.storyPlanRepo.data.find(item => item.segment_id === result.segmentId)
-      return plan ? { schemaVersion: plan.schema_version, source: plan.source, sceneCount: plan.plan?.scenes?.length || 0 } : null
+      return plan ? {
+        schemaVersion: plan.schema_version,
+        source: plan.source,
+        sceneCount: plan.plan?.scenes?.length || 0,
+        repairCount: plan.repair_count || 0,
+        finalVerificationStatus: plan.final_verification_status || null,
+        reviewFindings: plan.reviewFindings || [],
+      } : null
     })(),
     handoffQuality: (await repos.handoffRepo.getByDay(dayNumber))?.quality_status || null,
   })
