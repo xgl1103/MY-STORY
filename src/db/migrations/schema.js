@@ -223,6 +223,9 @@ CREATE TABLE IF NOT EXISTS story_plan (
   source                TEXT NOT NULL DEFAULT 'ai',
   input_fingerprint     TEXT NOT NULL,
   validation_errors_json TEXT,
+  review_findings_json  TEXT,
+  repair_count          INTEGER NOT NULL DEFAULT 0,
+  final_verification_status TEXT,
   created_at            TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at            TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (segment_id) REFERENCES story_segments(id)

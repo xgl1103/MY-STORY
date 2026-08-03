@@ -126,8 +126,8 @@ export async function importData(data) {
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, [row.id, row.day_number, row.segment_id, row.schema_version, row.ending_scene_json, row.character_state_json, row.hard_facts_json, row.active_goal, row.unfinished_action, row.immediate_next_action, row.unresolved_threads_json, row.prohibited_changes_json, row.choice_context_json, row.source, row.source_content_hash, row.quality_status || 'valid', row.quality_issues_json || '[]', row.fact_records_json || '[]', row.fallback_reason ?? null, row.created_at, row.updated_at])
     }
     for (const row of data.story_plan || []) {
-      execute(`INSERT INTO story_plan (id, day_number, segment_id, previous_handoff_day, schema_version, plan_json, status, source, input_fingerprint, validation_errors_json, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, [row.id, row.day_number, row.segment_id, row.previous_handoff_day, row.schema_version, row.plan_json, row.status, row.source, row.input_fingerprint, row.validation_errors_json, row.created_at, row.updated_at])
+      execute(`INSERT INTO story_plan (id, day_number, segment_id, previous_handoff_day, schema_version, plan_json, status, source, input_fingerprint, validation_errors_json, review_findings_json, repair_count, final_verification_status, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, [row.id, row.day_number, row.segment_id, row.previous_handoff_day, row.schema_version, row.plan_json, row.status, row.source, row.input_fingerprint, row.validation_errors_json, row.review_findings_json || '[]', row.repair_count || 0, row.final_verification_status ?? null, row.created_at, row.updated_at])
     }
   }) // 事务结束：全部成功则 COMMIT，任一失败则 ROLLBACK
 

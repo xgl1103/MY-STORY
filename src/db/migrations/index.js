@@ -74,6 +74,18 @@ const migrations = {
       try { db.run(`ALTER TABLE day_handoff ADD COLUMN ${name} ${definition}`) }
       catch (e) { if (!String(e.message).includes('duplicate column')) throw e }
     }
+  },
+  // 版本 7：保存剧情合同审查证据，供导出、复盘与真实测试报告使用
+  7: async (db) => {
+    const columns = [
+      ['review_findings_json', 'TEXT'],
+      ['repair_count', 'INTEGER NOT NULL DEFAULT 0'],
+      ['final_verification_status', 'TEXT'],
+    ]
+    for (const [name, definition] of columns) {
+      try { db.run(`ALTER TABLE story_plan ADD COLUMN ${name} ${definition}`) }
+      catch (e) { if (!String(e.message).includes('duplicate column')) throw e }
+    }
   }
 }
 

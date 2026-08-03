@@ -4,7 +4,12 @@ import { queryOne, execute, markWrite } from '../Database.js'
 const parse = (value, fallback = null) => {
   try { return value ? JSON.parse(value) : fallback } catch (_) { return fallback }
 }
-const normalize = row => row ? { ...row, plan: parse(row.plan_json, {}), validationErrors: parse(row.validation_errors_json, []) } : null
+const normalize = row => row ? {
+  ...row,
+  plan: parse(row.plan_json, {}),
+  validationErrors: parse(row.validation_errors_json, []),
+  reviewFindings: parse(row.review_findings_json, []),
+} : null
 
 export const StoryPlanRepository = {
   async getLatestForSegment(segmentId) {
@@ -46,6 +51,13 @@ export const StoryPlanRepository = {
 
   async markUsed(id) {
     execute(`UPDATE story_plan SET status = 'used', updated_at = CURRENT_TIMESTAMP WHERE id = ?`, [id])
+    await markWrite()
+  },
+
+  async recordReview(id, { findings = [], repairCount = 0, finalVerificationStatus = null } = {}) {
+    execute(`UPDATE story_plan
+             SET review_findings_json = ?, repair_count = ?, final_verification_status = ?, updated_at = CURRENT_TIMESTAMP
+             WHERE id = ?`, [JSON.stringify(findings), repairCount, finalVerificationStatus, id])
     await markWrite()
   },
 

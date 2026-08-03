@@ -118,6 +118,8 @@ assert.ok(writerPrompts.slice(1).some(prompt => prompt.includes('铜制怀表'))
 assert.ok(day7Handoff, '每个定稿日必须写入真实 SQLite 日终交接单')
 assert.equal(day7Handoff.segment_id > 0, true, '交接单必须关联段落')
 assert.equal(persistedPlans.length, 7, '每日生成必须保存一份剧情计划')
+assert.equal(persistedPlans.every(plan => plan.final_verification_status === 'passed'), true, '每个成功草稿都必须持久化最终审查通过状态')
+assert.equal(persistedPlans.every(plan => Array.isArray(JSON.parse(plan.review_findings_json || '[]'))), true, '每个剧情计划都必须持久化可导出的审查 findings')
 assert.equal(actualWriterPrompts.length, 7, '应捕获 7 次 Writer 调用')
 assert.ok(actualWriterPrompts.every(prompt => prompt.includes('当天剧情执行计划')), '每次 Writer 必须收到当天剧情计划')
 assert.equal((await StoryPlanRepository.getReusable(persistedPlans[0].segment_id, persistedPlans[0].input_fingerprint))?.status, 'used', '成功草稿计划应标记为 used')
@@ -129,5 +131,6 @@ console.log(JSON.stringify({
   resolvedForeshadowing: resolved[0].resolution,
   handoffDay: day7Handoff.day_number,
   plannedDays: persistedPlans.length,
+  verifiedPlans: persistedPlans.filter(plan => plan.final_verification_status === 'passed').length,
   writerPromptCount: actualWriterPrompts.length,
 }, null, 2))

@@ -310,6 +310,10 @@ class StoryEngine {
       const contractResult = await this._runSceneContractPipeline(parsed1.content, prompt, aiContext)
       await this.segmentRepo.updateReviewCount(segmentId, contractResult.reviewCount)
       if (!contractResult.success) {
+        await this._recordPlanReview(storyPlanRecord.id, {
+          findings: contractResult.findings || [], repairCount: Math.max(0, (contractResult.reviewCount || 1) - 1),
+          finalVerificationStatus: 'failed',
+        });
         await this.segmentRepo.updateStatus(segmentId, 'generate_failed');
         return {
           success: false,
@@ -354,10 +358,20 @@ class StoryEngine {
         requireSemanticDiaryAudit: ['ai_retry', 'fallback'].includes(storyPlanRecord.source),
       });
       if (!causalResult.success) {
+        await this._recordPlanReview(storyPlanRecord.id, {
+          findings: [...(contractResult.findings || []), ...(causalResult.findings || [])],
+          repairCount: Math.max(0, (contractResult.reviewCount || 1) - 1) + (causalResult.rewritten ? 1 : 0),
+          finalVerificationStatus: 'failed',
+        });
         await this.segmentRepo.updateStatus(segmentId, 'generate_failed');
         return { success: false, segmentId, error: causalResult.error, errorCode: 'E007' };
       }
       finalContent = causalResult.content;
+      await this._recordPlanReview(storyPlanRecord.id, {
+        findings: [...(contractResult.findings || []), ...(causalResult.findings || [])],
+        repairCount: Math.max(0, (contractResult.reviewCount || 1) - 1) + (causalResult.rewritten ? 1 : 0),
+        finalVerificationStatus: 'passed',
+      });
 
       // 11. 步骤8：正文、引用和状态原子提交；Repository 负责持久化细节。
       await this.segmentRepo.commitDraft(segmentId, {
@@ -576,6 +590,10 @@ class StoryEngine {
 
       const contractResult = await this._runSceneContractPipeline(parsed2.content, prompt, aiContext)
       if (!contractResult.success) {
+        await this._recordPlanReview(storyPlanRecord.id, {
+          findings: contractResult.findings || [], repairCount: Math.max(0, (contractResult.reviewCount || 1) - 1),
+          finalVerificationStatus: 'failed',
+        });
         await this.segmentRepo.updateStatus(segmentId, 'generate_failed');
         return {
           success: false,
@@ -619,10 +637,20 @@ class StoryEngine {
         requireSemanticDiaryAudit: ['ai_retry', 'fallback'].includes(storyPlanRecord.source),
       });
       if (!causalResult.success) {
+        await this._recordPlanReview(storyPlanRecord.id, {
+          findings: [...(contractResult.findings || []), ...(causalResult.findings || [])],
+          repairCount: Math.max(0, (contractResult.reviewCount || 1) - 1) + (causalResult.rewritten ? 1 : 0),
+          finalVerificationStatus: 'failed',
+        });
         await this.segmentRepo.updateStatus(segmentId, 'generate_failed');
         return { success: false, segmentId, error: causalResult.error, errorCode: 'E007' };
       }
       finalContent = causalResult.content;
+      await this._recordPlanReview(storyPlanRecord.id, {
+        findings: [...(contractResult.findings || []), ...(causalResult.findings || [])],
+        repairCount: Math.max(0, (contractResult.reviewCount || 1) - 1) + (causalResult.rewritten ? 1 : 0),
+        finalVerificationStatus: 'passed',
+      });
 
       // 更新段落：映射先更新，正文、引用、审查轮次与状态再原子提交。
       await this.segmentRepo.updateMapping(segmentId, mappingDesc)
@@ -1091,23 +1119,25 @@ ${content}
     }
 
     const firstAudit = await this._verifySemanticDiaryInfluence(content, context);
-    if (firstAudit.passed) return { success: true, content, semanticAudit: firstAudit };
+    if (firstAudit.passed) return { success: true, content, semanticAudit: firstAudit, findings: [] };
+
+    const diaryFinding = {
+      code: 'C102', severity: 'P0', contractId: 'diary-causality',
+      issue: `当天日记没有形成可观察的行动、状态变化或后果：${(firstAudit.issues || []).join('；') || '语义审计未确认因果影响'}`,
+      evidence: firstAudit.evidence || '日记影响语义审计未找到可验证证据',
+      repairInstruction: '逐项补足当天日记事件的实际行动、可观察状态变化及其后续后果；仅提到关键词不算完成。',
+    };
 
     const rewritten = await this.storyRewriter.rewrite({
       content,
-      findings: [{
-        code: 'C102', severity: 'P0', contractId: 'diary-causality',
-        issue: `当天日记没有形成可观察的行动、状态变化或后果：${(firstAudit.issues || []).join('；') || '语义审计未确认因果影响'}`,
-        evidence: firstAudit.evidence || '日记影响语义审计未找到可验证证据',
-        repairInstruction: '逐项补足当天日记事件的实际行动、可观察状态变化及其后续后果；仅提到关键词不算完成。',
-      }],
+      findings: [diaryFinding],
       systemPrompt: context.systemPrompt,
       aiContext: context.aiContext,
       storyPlanContext: context.storyPlanContext,
       continuityContext: context.continuityContext,
     });
     if (!rewritten.success) {
-      return { success: false, content, error: rewritten.error || '日记因果修复失败' };
+      return { success: false, content, findings: [diaryFinding], error: rewritten.error || '日记因果修复失败' };
     }
 
     const contractVerification = await this.reviewLoop.audit(
@@ -1116,7 +1146,7 @@ ${content}
       { continuityContext: context.continuityContext, storyPlanContext: context.storyPlanContext, hardOnly: true }
     );
     if (!contractVerification.passed) {
-      return { success: false, content: rewritten.content, error: this._formatCriticalError(contractVerification.findings) };
+      return { success: false, content: rewritten.content, findings: [diaryFinding, ...(contractVerification.findings || [])], rewritten: true, error: this._formatCriticalError(contractVerification.findings) };
     }
 
     const secondAudit = await this._verifySemanticDiaryInfluence(rewritten.content, context);
@@ -1124,10 +1154,23 @@ ${content}
       return {
         success: false,
         content: rewritten.content,
+        findings: [diaryFinding],
+        rewritten: true,
         error: `日记因果验收未通过：${(secondAudit.issues || []).join('；') || '未找到行动—状态变化—后果链'}`,
       };
     }
-    return { success: true, content: rewritten.content, semanticAudit: secondAudit, rewritten: true };
+    return { success: true, content: rewritten.content, semanticAudit: secondAudit, findings: [diaryFinding], rewritten: true };
+  }
+
+  async _recordPlanReview(planId, payload) {
+    try {
+      if (planId && typeof this.storyPlanRepo.recordReview === 'function') {
+        await this.storyPlanRepo.recordReview(planId, payload);
+      }
+    } catch (error) {
+      // 审计证据持久化失败不能把已经通过的正文伪装成未生成；保留日志供排障。
+      console.warn('[StoryEngine] 审查证据保存失败:', error.message);
+    }
   }
 
   // V2：Critical 只给分级证据，Rewriter 是唯一修改正文的角色。
