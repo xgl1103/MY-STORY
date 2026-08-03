@@ -334,7 +334,6 @@ class StoryEngine {
         coverageKeywords,
         continuityContext: prompt.continuityContext,
         storyPlanContext: prompt.storyPlanContext,
-        requireSemanticDiaryAudit: ['ai_retry', 'fallback'].includes(storyPlanRecord.source),
       });
       if (!qualityResult.success) {
         await this.segmentRepo.updateStatus(segmentId, 'generate_failed');
@@ -355,7 +354,7 @@ class StoryEngine {
         coverageKeywords,
         continuityContext: prompt.continuityContext,
         storyPlanContext: prompt.storyPlanContext,
-        requireSemanticDiaryAudit: ['ai_retry', 'fallback'].includes(storyPlanRecord.source),
+        requireSemanticDiaryAudit: (parsed.events || []).length > 0 && !qualityResult.assessment?.semanticDiaryInfluenceVerified,
       });
       if (!causalResult.success) {
         await this._recordPlanReview(storyPlanRecord.id, {
@@ -613,7 +612,6 @@ class StoryEngine {
         coverageKeywords,
         continuityContext: prompt.continuityContext,
         storyPlanContext: prompt.storyPlanContext,
-        requireSemanticDiaryAudit: ['ai_retry', 'fallback'].includes(storyPlanRecord.source),
       });
       if (!qualityResult.success) {
         await this.segmentRepo.updateStatus(segmentId, 'generate_failed');
@@ -634,7 +632,7 @@ class StoryEngine {
         coverageKeywords,
         continuityContext: prompt.continuityContext,
         storyPlanContext: prompt.storyPlanContext,
-        requireSemanticDiaryAudit: ['ai_retry', 'fallback'].includes(storyPlanRecord.source),
+        requireSemanticDiaryAudit: (parsed.events || []).length > 0 && !qualityResult.assessment?.semanticDiaryInfluenceVerified,
       });
       if (!causalResult.success) {
         await this._recordPlanReview(storyPlanRecord.id, {
@@ -1109,7 +1107,7 @@ ${content}
   }
 
   /**
-   * 对无法由字面覆盖规则证明的回退计划，验证日记是否真正改变了剧情。
+   * 对每个含日记事件的日子验证日记是否真正改变了剧情。
    * 只有审计失败时才额外调用 Rewriter；避免把“提到日记关键词”误当作因果影响。
    * @private
    */
