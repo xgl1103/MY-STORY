@@ -83,15 +83,11 @@ ${report.errors.length ? report.errors.map(item => `- Day ${item.day ?? 'N/A'} /
 
 ## Days
 ${report.days.length ? report.days.map(day => `### Day ${day.day}
-Input: ${day.input}
+Diary metadata: ${JSON.stringify(day.diary)}
 Chars: ${day.chars}
 Clock signal: ${day.containsClock}
 Plan: ${JSON.stringify(day.plan)}
-Handoff quality: ${day.handoffQuality}
-
-开头节选：${day.excerpt}
-
-结尾节选：${day.endingExcerpt}`).join('\n\n') : 'No completed day yet.'}
+Handoff quality: ${day.handoffQuality}`).join('\n\n') : 'No completed day yet.'}
 
 ## Result data
 ${JSON.stringify({ choice: report.choice, foreshadowAudit: report.foreshadowAudit, influenceAudit: report.influenceAudit, critical: report.critical, callCounts: report.callCounts }, null, 2)}
@@ -128,9 +124,12 @@ for (let index = 0; index < days.length; index++) {
   if (!finalized.success) throw new Error(`第${dayNumber}天定稿失败：${finalized.error}`)
   generatedStories.set(dayNumber, result.content)
   report.days.push({
-    day: dayNumber, input: input.text, tags: input.tags, segmentId: result.segmentId,
-    chars: result.content.length, excerpt: result.content.slice(0, 420),
-    endingExcerpt: result.content.slice(-420),
+    day: dayNumber,
+    // Test reports are retained locally for diagnosis, but must not contain a
+    // user's complete diary or generated prose.
+    diary: { charCount: input.text.length, tagCount: input.tags.length },
+    segmentId: result.segmentId,
+    chars: result.content.length,
     containsClock: result.content.includes('怀表') || result.content.includes('钟表'),
     finalized: finalized.success,
     plan: (() => {
@@ -141,7 +140,13 @@ for (let index = 0; index < days.length; index++) {
         sceneCount: plan.plan?.scenes?.length || 0,
         repairCount: plan.repair_count || 0,
         finalVerificationStatus: plan.final_verification_status || null,
-        reviewFindings: plan.reviewFindings || [],
+        // Findings are diagnostic metadata only. Do not retain generated prose
+        // quoted by the reviewer in a test artifact.
+        reviewFindings: (plan.reviewFindings || []).map(finding => ({
+          code: finding.code,
+          severity: finding.severity,
+          contractId: finding.contractId,
+        })),
       } : null
     })(),
     handoffQuality: (await repos.handoffRepo.getByDay(dayNumber))?.quality_status || null,
@@ -152,7 +157,10 @@ for (let index = 0; index < days.length; index++) {
 
 const day3WriterPrompt = calls.find(call => call.kind === 'writer' && call.prompt.includes(days[2].text))?.prompt || ''
 report.choiceInheritedInWriterPrompt = day3WriterPrompt.includes('主动追踪纹章来源') && day3WriterPrompt.includes('更高风险')
-report.diaryInfluenceEvidence = report.days.map(day => ({ day: day.day, inputAppearsInWriterPrompt: calls.some(call => call.kind === 'writer' && call.prompt.includes(day.input)) }))
+report.diaryInfluenceEvidence = report.days.map(day => ({
+  day: day.day,
+  inputAppearsInWriterPrompt: calls.some(call => call.kind === 'writer' && call.prompt.includes(days[day.day - 1]?.text)),
+}))
 
 const day1 = report.days[0]
 const day6 = report.days[5]
@@ -163,14 +171,14 @@ const audit = await adapter.chat({
   systemPrompt: '你是严格的连载小说连续性审计员。只输出 JSON。',
   userPrompt: `检查伏笔回收。第1天埋下“铜制怀表陌生纹章”的未解线索。\n第1天正文：${generatedStories.get(1)}\n第6天正文：${generatedStories.get(6)}\n输出 {"resolved":true|false,"evidence":"简述证据","issue":"如未回收说明原因"}`,
 })
-try { report.foreshadowAudit = JSON.parse(audit.content) } catch (_) { report.foreshadowAudit = { resolved: false, issue: '审计 JSON 解析失败', raw: audit.content?.slice(0, 300) } }
+  try { report.foreshadowAudit = JSON.parse(audit.content) } catch (_) { report.foreshadowAudit = { resolved: false, issue: '审计 JSON 解析失败' } }
 
 const influenceAudit = await adapter.chat({
   apiKey, baseUrl: null, temperature: 0, maxTokens: 700,
   systemPrompt: '你是严格的互动叙事审计员。只输出 JSON。',
   userPrompt: `验证用户选择和日记是否实质改变了剧情后果。\n既有选择：林墨选择“主动追踪纹章来源”，并承担更高风险。\n第4天日记：${days[3].text}\n第4天正文：${generatedStories.get(4)}\n输出 {"choiceHasConsequence":true|false,"diaryHasConsequence":true|false,"evidence":"具体场景与后果","issue":"如失败说明原因"}`,
 })
-try { report.influenceAudit = JSON.parse(influenceAudit.content) } catch (_) { report.influenceAudit = { choiceHasConsequence: false, diaryHasConsequence: false, issue: '审计 JSON 解析失败', raw: influenceAudit.content?.slice(0, 300) } }
+  try { report.influenceAudit = JSON.parse(influenceAudit.content) } catch (_) { report.influenceAudit = { choiceHasConsequence: false, diaryHasConsequence: false, issue: '审计 JSON 解析失败' } }
 
 const critical = new ReviewLoop()
 report.critical = await critical.audit(
