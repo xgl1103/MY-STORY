@@ -100,8 +100,15 @@ ${JSON.stringify({ choice: report.choice, foreshadowAudit: report.foreshadowAudi
 const saveReport = async () => {
   report.updatedAt = new Date().toISOString()
   report.callCounts = calls.reduce((counts, call) => ({ ...counts, [call.kind]: (counts[call.kind] || 0) + 1 }), {})
-  await fs.writeFile(reportPaths.json, JSON.stringify(report, null, 2), 'utf8')
-  await fs.writeFile(reportPaths.markdown, buildMarkdown(), 'utf8')
+  // 每日 checkpoint 必须原子落盘。进程被超时器、浏览器或系统中断时，
+  // 旧报告仍保留最后一个完整日，而不是被截断成 0 字节文件。
+  const writeAtomic = async (filePath, content) => {
+    const temporaryPath = `${filePath}.${process.pid}.tmp`
+    await fs.writeFile(temporaryPath, content, 'utf8')
+    await fs.rename(temporaryPath, filePath)
+  }
+  await writeAtomic(reportPaths.json, JSON.stringify(report, null, 2))
+  await writeAtomic(reportPaths.markdown, buildMarkdown())
 }
 
 let activeDay = null
