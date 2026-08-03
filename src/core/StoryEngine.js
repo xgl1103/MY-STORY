@@ -1000,7 +1000,10 @@ class StoryEngine {
    */
   async _enforceContentQuality(content, context) {
     let currentContent = String(content || '').trim();
-    const maxRepairs = 3;
+    // Length/ending repairs are a last resort. Narrative causality must not
+    // enter this legacy loop: V2 delegates it to the single scene-contract
+    // Rewriter below, preventing repeated keyword-stuffing rewrites.
+    const maxRepairs = 1;
 
     for (let attempt = 0; attempt <= maxRepairs; attempt++) {
       const assessment = ContentQualityGate.assess(currentContent, context.coverageKeywords);
@@ -1018,6 +1021,10 @@ class StoryEngine {
           assessment.semanticDiaryEvidence = semanticAudit.evidence;
           return { success: true, content: currentContent, assessment };
         }
+        // Do not retry by forcing literal diary keywords into prose. The
+        // subsequent causal-contract stage will make one evidence-based repair
+        // and re-audit it. This preserves the V2 single-Rewriter invariant.
+        return { success: true, content: currentContent, assessment };
       }
 
       if (attempt === maxRepairs) {
