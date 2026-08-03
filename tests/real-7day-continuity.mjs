@@ -12,6 +12,11 @@ if (!/^sk-[A-Za-z0-9_-]{20,}$/.test(apiKey)) {
   throw new Error('测试密钥格式无效：api_key.txt 必须只含一行 ASCII 的 sk- 开头密钥，不能粘贴说明文字、引号或多行内容。')
 }
 
+const configuredTimeout = Number(process.env.REAL_TEST_REQUEST_TIMEOUT_MS || 45000)
+const requestTimeoutMs = Number.isFinite(configuredTimeout)
+  ? Math.max(10000, Math.min(60000, Math.floor(configuredTimeout)))
+  : 45000
+
 const [{ createMockStoryEngine }, { default: DeepSeekAdapter }, { default: ReviewLoop }] = await Promise.all([
   load('mock/index.js'), load('src/ai/adapters/DeepSeekAdapter.js'), load('src/ai/ReviewLoop.js'),
 ])
@@ -34,6 +39,7 @@ class RecordingDeepSeekAdapter extends DeepSeekAdapter {
 }
 
 const adapter = new RecordingDeepSeekAdapter()
+adapter.timeout = requestTimeoutMs
 const { storyEngine, repos } = createMockStoryEngine({
   useMockAdapter: false,
   userState: {
@@ -64,7 +70,7 @@ const days = [
   { text: '我和朋友坦诚交流，决定把「钟表匠线索」交给「可靠组织」继续追查。', tags: ['社交', '工作'] },
 ]
 
-const report = { runId, startedAt: new Date().toISOString(), status: 'running', days: [], choice: null, critical: null, errors: [] }
+const report = { runId, startedAt: new Date().toISOString(), requestTimeoutMs, status: 'running', days: [], choice: null, critical: null, errors: [] }
 const generatedStories = new Map()
 const summarizeForeshadowAudit = parsed => ({
   resolved: parsed?.resolved === true,
