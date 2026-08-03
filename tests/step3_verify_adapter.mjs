@@ -1,10 +1,10 @@
 // 联调第3步：用项目的 DeepSeek 适配器调用真实 API
 // 运行: node tests/step3_verify_adapter.mjs
 
-import { pathToFileURL } from 'url';
+import { fileURLToPath, pathToFileURL } from 'url';
 import path from 'path';
 
-const workspace = 'e:\\Code\\手机mystory游戏';
+const workspace = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const f = (p) => pathToFileURL(path.join(workspace, p)).href;
 
 const { default: DeepSeekAdapter } = await import(f('src\\ai\\adapters\\DeepSeekAdapter.js'));

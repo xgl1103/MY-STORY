@@ -3,8 +3,9 @@
 
 import fs from 'fs';
 import path from 'path';
+import { fileURLToPath } from 'url';
 
-const workspace = 'e:\\Code\\手机mystory游戏';
+const workspace = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const configDir = path.join(workspace, 'src', 'config', 'worlds', 'lord_of_mysteries');
 
 console.log('=== 第2步：验证配置 JSON 数据 ===\n');

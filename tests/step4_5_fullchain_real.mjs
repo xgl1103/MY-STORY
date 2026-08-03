@@ -4,10 +4,10 @@
 // 策略：Mock Repository 提供数据（无需数据库），真实 DeepSeek 适配器调用真实 API
 // 覆盖 _getAIContext 返回真实 adapter + 真实 API Key
 
-import { pathToFileURL } from 'url';
+import { fileURLToPath, pathToFileURL } from 'url';
 import path from 'path';
 
-const workspace = 'e:\\Code\\手机mystory游戏';
+const workspace = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const f = (p) => pathToFileURL(path.join(workspace, p)).href;
 
 const { createMockStoryEngine } = await import(f('mock\\index.js'));
