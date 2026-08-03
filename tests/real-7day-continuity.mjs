@@ -6,9 +6,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const load = relative => import(pathToFileURL(path.join(root, relative)).href)
 let apiKey = process.env.DEEPSEEK_API_KEY
-if (!apiKey) {
-  try { apiKey = (await fs.readFile(path.join(root, 'api_key.txt'), 'utf8')).trim() } catch (_) { /* optional local test file */ }
-}
+if (!apiKey) throw new Error('DEEPSEEK_API_KEY is required; set it only in the current terminal session. This test never reads a local key file.')
 if (!apiKey) throw new Error('缺少 DEEPSEEK_API_KEY；请设置本机环境变量，或在 gitignore 的 api_key.txt 中仅保存一行测试密钥。')
 if (!/^sk-[A-Za-z0-9_-]{20,}$/.test(apiKey)) {
   throw new Error('测试密钥格式无效：api_key.txt 必须只含一行 ASCII 的 sk- 开头密钥，不能粘贴说明文字、引号或多行内容。')
