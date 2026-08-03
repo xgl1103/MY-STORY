@@ -2,7 +2,7 @@
 // 目标不是替 AI 再写一次剧情，而是在交接单进入 Planner 前阻止残句、空泛动作和
 // 明显截断文本继续污染后续计划。所有规则纯本地执行，不增加 AI 调用。
 
-const ACTION_VERBS = /(?:将|把|嵌入|启动|打开|进入|离开|收起|握住|前往|追查|调查|确认|决定|寻找|交给|返回|跟随|躲开|面对|等待|检查|完成|提交|代班|调班|联系|准备|继续)/
+const NON_ACTION = /^(?:待定|暂无|无|未知|继续推进|推进剧情|保持现状|等待后续|to be determined|tbd|unknown|continue the story|advance the plot|wait for more)$/i
 const LEADING_FRAGMENT = /^(?:[，。；：、\s"'“”‘’…—-]+|(?:的|了|着|和|但|而且|所以|于是|声|后|前|中|里)[，。；：、\s]*)+/u
 const TRAILING_FRAGMENT = /(?:[，、；：\-—…]|的|了|着|和|但|而且|所以|于是)$/u
 
@@ -66,7 +66,10 @@ export class HandoffCleaner {
   }
 
   _isActionable(value) {
-    return string(value).length >= 8 && ACTION_VERBS.test(value)
+    // Models may phrase a concrete action with verbs outside a fixed Chinese
+    // dictionary. Reject known placeholders, then let the downstream scene
+    // contract verifier validate whether the action is actually executed.
+    return string(value).length >= 8 && !NON_ACTION.test(string(value))
   }
 
   _cleanEndingScene(value, fallback) {

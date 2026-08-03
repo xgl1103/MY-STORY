@@ -29,6 +29,13 @@ assert.equal(fallback.qualityStatus, 'fallback', '无法恢复的动作必须使
 assert.equal(fallback.fallbackReason, 'invalid_or_truncated_action')
 assert.ok(fallback.handoff.unfinishedAction.includes('继续处理本日结尾'), 'fallback 必须从正文结尾构造动作')
 assert.ok(fallback.handoff.immediateNextAction.includes('从以下结尾状态'), 'fallback 必须提供下一步动作')
+
+const multilingual = cleaner.clean({
+  activeGoal: 'Identify the symbol source before dawn',
+  unfinishedAction: 'Lin examines the mechanism behind the iron door',
+  immediateNextAction: 'He enters the warehouse and follows the sound',
+}, { content: '林墨站在铁门前，听见门后传来钟表声。' })
+assert.equal(multilingual.qualityStatus, 'valid', '具体动作不能因动词语言不同被错误降级')
 assert.ok(fallback.handoff.hardFacts.some(item => item.includes('主动追踪纹章来源')), 'fallback 必须继承用户选择')
 
 console.log('HANDOFF_CLEANER_TEST_PASS')
