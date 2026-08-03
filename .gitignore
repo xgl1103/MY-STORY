@@ -21,6 +21,7 @@ diary-app-ui-research/
 
 # Secrets
 api_key.txt
+deepseek.txt
 .env
 .env.*
 !.env.example
