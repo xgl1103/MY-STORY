@@ -126,6 +126,11 @@ for (let index = 0; index < days.length; index++) {
     endingExcerpt: result.content.slice(-420),
     containsClock: result.content.includes('怀表') || result.content.includes('钟表'),
     finalized: finalized.success,
+    plan: (() => {
+      const plan = repos.storyPlanRepo.data.find(item => item.segment_id === result.segmentId)
+      return plan ? { schemaVersion: plan.schema_version, source: plan.source, sceneCount: plan.plan?.scenes?.length || 0 } : null
+    })(),
+    handoffQuality: (await repos.handoffRepo.getByDay(dayNumber))?.quality_status || null,
   })
   // 每完成一天就保存检查点；即使后续中断，已完成内容仍可作为测试案例复核。
   await saveReport()
@@ -154,11 +159,11 @@ const influenceAudit = await adapter.chat({
 try { report.influenceAudit = JSON.parse(influenceAudit.content) } catch (_) { report.influenceAudit = { choiceHasConsequence: false, diaryHasConsequence: false, issue: '审计 JSON 解析失败', raw: influenceAudit.content?.slice(0, 300) } }
 
 const critical = new ReviewLoop()
-report.critical = await critical.verify(
+report.critical = await critical.audit(
   '林墨从未见过任何怀表，也从未作出选择；他已经直接成为序列0真神，轻易毁掉整座城市。',
   '主角林墨目前仅是占卜家序列9，故事必须保持事实一致。',
   adapter, apiKey, null,
-  { temperature: 0, maxTokens: 900, continuityContext: '既有事实：林墨发现过铜制怀表；用户选择“主动追踪纹章来源”，并承担更高风险；林墨当前仅为序列9。' }
+  { maxTokens: 900, continuityContext: '既有事实：林墨发现过铜制怀表；用户选择“主动追踪纹章来源”，并承担更高风险；林墨当前仅为序列9。', storyPlanContext: '合同：不得否认怀表与用户选择；主角不得无原因获得超越序列9的力量。' }
 )
 
 report.finishedAt = new Date().toISOString()

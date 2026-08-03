@@ -329,6 +329,8 @@ class StoryEngine {
         dailyEvents: parsed.events,
         coverageKeywords,
         continuityContext: prompt.continuityContext,
+        storyPlanContext: prompt.storyPlanContext,
+        requireSemanticDiaryAudit: ['ai_retry', 'fallback'].includes(storyPlanRecord.source),
       });
       if (!qualityResult.success) {
         await this.segmentRepo.updateStatus(segmentId, 'generate_failed');
@@ -340,6 +342,22 @@ class StoryEngine {
         };
       }
       finalContent = qualityResult.content;
+
+      const causalResult = await this._enforceDiaryCausalImpact(finalContent, {
+        systemPrompt: prompt.systemPrompt,
+        aiContext,
+        user,
+        dailyEvents: parsed.events,
+        coverageKeywords,
+        continuityContext: prompt.continuityContext,
+        storyPlanContext: prompt.storyPlanContext,
+        requireSemanticDiaryAudit: ['ai_retry', 'fallback'].includes(storyPlanRecord.source),
+      });
+      if (!causalResult.success) {
+        await this.segmentRepo.updateStatus(segmentId, 'generate_failed');
+        return { success: false, segmentId, error: causalResult.error, errorCode: 'E007' };
+      }
+      finalContent = causalResult.content;
 
       // 11. 步骤8：正文、引用和状态原子提交；Repository 负责持久化细节。
       await this.segmentRepo.commitDraft(segmentId, {
@@ -576,6 +594,8 @@ class StoryEngine {
         dailyEvents: parsed.events,
         coverageKeywords,
         continuityContext: prompt.continuityContext,
+        storyPlanContext: prompt.storyPlanContext,
+        requireSemanticDiaryAudit: ['ai_retry', 'fallback'].includes(storyPlanRecord.source),
       });
       if (!qualityResult.success) {
         await this.segmentRepo.updateStatus(segmentId, 'generate_failed');
@@ -587,6 +607,22 @@ class StoryEngine {
         };
       }
       finalContent = qualityResult.content;
+
+      const causalResult = await this._enforceDiaryCausalImpact(finalContent, {
+        systemPrompt: prompt.systemPrompt,
+        aiContext,
+        user,
+        dailyEvents: parsed.events,
+        coverageKeywords,
+        continuityContext: prompt.continuityContext,
+        storyPlanContext: prompt.storyPlanContext,
+        requireSemanticDiaryAudit: ['ai_retry', 'fallback'].includes(storyPlanRecord.source),
+      });
+      if (!causalResult.success) {
+        await this.segmentRepo.updateStatus(segmentId, 'generate_failed');
+        return { success: false, segmentId, error: causalResult.error, errorCode: 'E007' };
+      }
+      finalContent = causalResult.content;
 
       // 更新段落：映射先更新，正文、引用、审查轮次与状态再原子提交。
       await this.segmentRepo.updateMapping(segmentId, mappingDesc)
@@ -1033,11 +1069,65 @@ ${content}
       }), '日记影响语义审计');
       if (!result.success || !result.content) return { passed: false, evidence: '' };
       const parsed = this.reviewLoop._parseReviewJson(result.content);
-      return { passed: parsed.passed === true, evidence: String(parsed.evidence || parsed.suggestions || '') };
+      return {
+        passed: parsed.passed === true,
+        evidence: String(parsed.evidence || parsed.suggestions || ''),
+        issues: Array.isArray(parsed.issues) ? parsed.issues : [],
+      };
     } catch (_) {
       // 审计不可用时保持保守策略，继续原有的修复流程。
       return { passed: false, evidence: '' };
     }
+  }
+
+  /**
+   * 对无法由字面覆盖规则证明的回退计划，验证日记是否真正改变了剧情。
+   * 只有审计失败时才额外调用 Rewriter；避免把“提到日记关键词”误当作因果影响。
+   * @private
+   */
+  async _enforceDiaryCausalImpact(content, context) {
+    if (!context.requireSemanticDiaryAudit || !(context.dailyEvents || []).length) {
+      return { success: true, content };
+    }
+
+    const firstAudit = await this._verifySemanticDiaryInfluence(content, context);
+    if (firstAudit.passed) return { success: true, content, semanticAudit: firstAudit };
+
+    const rewritten = await this.storyRewriter.rewrite({
+      content,
+      findings: [{
+        code: 'C102', severity: 'P0', contractId: 'diary-causality',
+        issue: `当天日记没有形成可观察的行动、状态变化或后果：${(firstAudit.issues || []).join('；') || '语义审计未确认因果影响'}`,
+        evidence: firstAudit.evidence || '日记影响语义审计未找到可验证证据',
+        repairInstruction: '逐项补足当天日记事件的实际行动、可观察状态变化及其后续后果；仅提到关键词不算完成。',
+      }],
+      systemPrompt: context.systemPrompt,
+      aiContext: context.aiContext,
+      storyPlanContext: context.storyPlanContext,
+      continuityContext: context.continuityContext,
+    });
+    if (!rewritten.success) {
+      return { success: false, content, error: rewritten.error || '日记因果修复失败' };
+    }
+
+    const contractVerification = await this.reviewLoop.audit(
+      rewritten.content, context.systemPrompt, context.aiContext.adapter,
+      context.aiContext.apiKey, context.aiContext.baseUrl,
+      { continuityContext: context.continuityContext, storyPlanContext: context.storyPlanContext, hardOnly: true }
+    );
+    if (!contractVerification.passed) {
+      return { success: false, content: rewritten.content, error: this._formatCriticalError(contractVerification.findings) };
+    }
+
+    const secondAudit = await this._verifySemanticDiaryInfluence(rewritten.content, context);
+    if (!secondAudit.passed) {
+      return {
+        success: false,
+        content: rewritten.content,
+        error: `日记因果验收未通过：${(secondAudit.issues || []).join('；') || '未找到行动—状态变化—后果链'}`,
+      };
+    }
+    return { success: true, content: rewritten.content, semanticAudit: secondAudit, rewritten: true };
   }
 
   // V2：Critical 只给分级证据，Rewriter 是唯一修改正文的角色。

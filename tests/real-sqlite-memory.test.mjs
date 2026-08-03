@@ -65,6 +65,9 @@ const adapter = {
         }),
       }
     }
+    if (userPrompt.includes('日记影响审计员')) {
+      return { success: true, content: '{"passed":true,"issues":[],"evidence":"测试正文已把日记事件转化为调查行动和后续线索。"}' }
+    }
     if (userPrompt.includes('审查')) return { success: true, content: '{"passed":true,"issues":[],"revised_content":""}' }
     if (userPrompt.includes('润色')) return { success: true, content: storyBody }
     writerPrompts.push(userPrompt)

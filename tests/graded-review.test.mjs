@@ -40,4 +40,36 @@ assert.equal(contract.reviewCount, 2)
 const preserved = await storyEngine._polishWithRollback(contract.content, prompt, aiContext, { ai_temperature: 0.8, ai_max_tokens: 1000 })
 assert.equal(preserved, contract.content, '润色引入 P0 事实矛盾时必须回退到润色前版本')
 
+let semanticCalls = 0
+const causalAdapter = {
+  async chat(args) {
+    if (args.userPrompt.includes('日记影响审计员')) {
+      semanticCalls++
+      return { success: true, content: semanticCalls === 1
+        ? JSON.stringify({ passed: false, issues: ['调班只被提及，没有带来调查时间或人情义务'], evidence: '正文只说同事愿意帮忙' })
+        : JSON.stringify({ passed: true, issues: [], evidence: '同事实际代班，林墨获得调查时间并欠下人情。' }) }
+    }
+    if (args.userPrompt.includes('唯一终稿修复编辑')) {
+      return { success: true, content: '同事实际替林墨代班，林墨因此获得调查时间，也欠下了必须偿还的人情。' }
+    }
+    if (args.userPrompt.includes('互动连载小说的严格 Critical')) {
+      return { success: true, content: JSON.stringify({ passed: true, findings: [] }) }
+    }
+    return { success: false, error: `unexpected prompt: ${args.userPrompt.slice(0, 40)}` }
+  },
+}
+const causalEngine = createMockStoryEngine({ mockAdapter: causalAdapter }).storyEngine
+const causal = await causalEngine._enforceDiaryCausalImpact('同事说可以调班。', {
+  requireSemanticDiaryAudit: true,
+  dailyEvents: ['同事调班后继续调查'],
+  coverageKeywords: ['调班'],
+  systemPrompt: '系统设定',
+  aiContext: { adapter: causalAdapter, apiKey: 'key', baseUrl: null },
+  storyPlanContext: 'D-shift：同事实际代班，林墨获得调查时间并欠下人情。',
+  continuityContext: '林墨正在调查。',
+})
+assert.equal(causal.success, true, '日记仅被提及时必须触发一次定向 Rewriter，修复后再通过语义验收')
+assert.equal(semanticCalls, 2, '语义验收必须在回写前后各执行一次')
+assert.match(causal.content, /实际替林墨代班/)
+
 console.log('GRADED_REVIEW_TEST_PASS')
