@@ -39,21 +39,6 @@
       <p>加载中...</p>
     </div>
 
-    <!-- 月份切换器 -->
-    <div class="month-switcher">
-      <button class="month-arrow" @click="changeMonth(-1)">
-        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg>
-      </button>
-      <div class="month-labels">
-        <span class="month-adjacent">{{ prevMonthLabel }}</span>
-        <span class="month-current">{{ currentMonthLabel }}{{ currentYear }}</span>
-        <span class="month-adjacent">{{ nextMonthLabel }}</span>
-      </div>
-      <button class="month-arrow" @click="changeMonth(1)">
-        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>
-      </button>
-    </div>
-
     <!-- 筛选标签 -->
     <div v-if="!loading && !searchKeyword.trim()" class="filter-tags">
       <button
@@ -65,36 +50,16 @@
       >{{ f.label }}</button>
     </div>
 
-    <!-- 星期标题 -->
-    <div v-if="!loading && !searchKeyword.trim()" class="weekdays">
-      <span v-for="w in weekdays" :key="w">{{ w }}</span>
-    </div>
-
-    <!-- 月历网格 -->
-    <div v-if="!loading && !searchKeyword.trim()" class="calendar-grid">
-      <div
-        v-for="(day, i) in calendarDays"
-        :key="i"
-        class="cal-day"
-        :class="{
-          'other-month': !day.currentMonth,
-          'has-diary': day.hasDiary,
-          'selected': day.dateStr === selectedDate,
-          'dimmed': day.dimmed,
-          [day.moodClass]: day.moodClass
-        }"
-        @click="selectDay(day)"
-      >
-        <span class="day-number">{{ day.day }}</span>
-        <span v-if="day.hasDiary" class="day-dot" />
-      </div>
-    </div>
-
-    <!-- 心情图例 -->
-    <div class="mood-legend">
-      <span class="legend-item"><span class="legend-dot" style="background:#E8F5E9" />心情不错</span>
-      <span class="legend-item"><span class="legend-dot" style="background:#FFF8E1" />一般</span>
-      <span class="legend-item"><span class="legend-dot" style="background:#E3F2FD" />平静</span>
+    <div v-if="!loading && !searchKeyword.trim()" class="calendar-overview-wrap">
+      <MonthlyOverview
+        :year="currentYear"
+        :month="currentMonth"
+        :diaries-by-date="diariesByDate"
+        :selected-date="selectedDate"
+        :dim-date="isDateDimmed"
+        @change-month="changeMonth"
+        @select-day="selectDay"
+      />
     </div>
 
     <!-- 选中日期的日记卡片 -->
@@ -104,7 +69,10 @@
         <span v-if="selectedDiary.hasSegment" class="diary-tag">已生成 {{ selectedDiary.chapterLabel || '故事' }}</span>
       </div>
       <div class="diary-card-body">
-        <span class="diary-mood">{{ moodEmoji(selectedDiary.mood) }} {{ moodLabel(selectedDiary.mood) }}</span>
+        <span class="diary-mood">
+          {{ getMoodOption(selectedDiary.mood).emoji }} {{ getMoodOption(selectedDiary.mood).label }}
+          · {{ selectedDiary.weather ? getWeatherOption(selectedDiary.weather).emoji + ' ' + getWeatherOption(selectedDiary.weather).label : '天气未记录' }}
+        </span>
         <h3 class="diary-title">{{ diaryTitle }}</h3>
         <p class="diary-summary">{{ diarySummary }}</p>
       </div>
@@ -130,6 +98,13 @@ import { useRouter } from 'vue-router'
 import { DiaryRepository } from '@/db/repositories/DiaryRepository'
 import { SegmentRepository } from '@/db/repositories/SegmentRepository'
 import { ChapterRepository } from '@/db/repositories/ChapterRepository'
+import MonthlyOverview from '@/components/MonthlyOverview.vue'
+import {
+  formatCalendarDate,
+  diaryTimestampToLocalDateKey,
+  shiftCalendarMonth
+} from '@/features/diary/monthCalendar.js'
+import { getMoodOption, getWeatherOption } from '@/features/diary/moodWeatherOptions.js'
 
 const router = useRouter()
 
@@ -142,98 +117,18 @@ const showSearch = ref(false)
 const searchKeyword = ref('')
 const loading = ref(true)
 
-const weekdays = ['一', '二', '三', '四', '五', '六', '日']
-
 const filters = [
   { key: 'diary', label: '有日记' },
   { key: 'generated', label: '已生成' },
   { key: 'both', label: '两者' }
 ]
 
-const MOOD_MAP = {
-  good: { class: 'mood-good', bg: '#E8F5E9', emoji: '😊', label: '心情不错' },
-  ok: { class: 'mood-ok', bg: '#FFF8E1', emoji: '😐', label: '一般' },
-  calm: { class: 'mood-calm', bg: '#E3F2FD', emoji: '😌', label: '平静' },
-  low: { class: 'mood-low', bg: '#FCE4EC', emoji: '😔', label: '低落' },
-  tired: { class: 'mood-tired', bg: '#F5F5F5', emoji: '😴', label: '疲惫' }
-}
-
-const monthNames = ['1月', '2月', '3月', '4月', '5月', '6月', '7月', '8月', '9月', '10月', '11月', '12月']
-
-const currentMonthLabel = computed(() => monthNames[currentMonth.value])
-const prevMonthLabel = computed(() => {
-  const m = currentMonth.value === 0 ? 11 : currentMonth.value - 1
-  return monthNames[m]
-})
-const nextMonthLabel = computed(() => {
-  const m = currentMonth.value === 11 ? 0 : currentMonth.value + 1
-  return monthNames[m]
-})
-
-// 生成日历天数
-const calendarDays = computed(() => {
-  const year = currentYear.value
-  const month = currentMonth.value
-  const firstDay = new Date(year, month, 1)
-  const lastDay = new Date(year, month + 1, 0)
-  const daysInMonth = lastDay.getDate()
-
-  // 周一=0
-  let startWeekday = (firstDay.getDay() + 6) % 7
-
-  const days = []
-
-  // 上月填充
-  const prevLastDay = new Date(year, month, 0).getDate()
-  for (let i = startWeekday - 1; i >= 0; i--) {
-    const d = prevLastDay - i
-    const dateStr = formatDate(year, month - 1, d)
-    days.push(createDay(d, false, dateStr))
-  }
-
-  // 当月
-  for (let d = 1; d <= daysInMonth; d++) {
-    const dateStr = formatDate(year, month, d)
-    days.push(createDay(d, true, dateStr))
-  }
-
-  // 下月填充到 42 格
-  const remaining = 42 - days.length
-  for (let d = 1; d <= remaining; d++) {
-    const dateStr = formatDate(year, month + 1, d)
-    days.push(createDay(d, false, dateStr))
-  }
-
-  // 6.2 修复：根据筛选标签过滤高亮显示
-  return days.map(day => {
-    // 筛选只影响显示样式（灰化不符合条件的日期），不改变布局
-    if (activeFilter.value === 'diary') {
-      return { ...day, dimmed: day.currentMonth && !day.hasDiary }
-    } else if (activeFilter.value === 'generated') {
-      return { ...day, dimmed: day.currentMonth && !(day.diary && day.diary.hasSegment) }
-    } else if (activeFilter.value === 'both') {
-      return { ...day, dimmed: day.currentMonth && !(day.diary && day.diary.hasSegment && day.hasDiary) }
-    }
-    return { ...day, dimmed: false }
-  })
-})
-
-function formatDate(year, month, day) {
-  const d = new Date(year, month, day)
-  const y = d.getFullYear()
-  const m = String(d.getMonth() + 1).padStart(2, '0')
-  const dd = String(d.getDate()).padStart(2, '0')
-  return `${y}-${m}-${dd}`
-}
-
-function createDay(day, currentMonth, dateStr) {
-  const diary = diariesByDate.value.get(dateStr)
-  const hasDiary = !!diary
-  let moodClass = null
-  if (diary && diary.mood) {
-    moodClass = MOOD_MAP[diary.mood]?.class || null
-  }
-  return { day, currentMonth, dateStr, hasDiary, moodClass, diary }
+function isDateDimmed(day) {
+  if (!day.currentMonth) return false
+  if (activeFilter.value === 'diary') return !day.diary
+  if (activeFilter.value === 'generated') return !day.diary?.hasSegment
+  if (activeFilter.value === 'both') return !(day.diary && day.diary.hasSegment)
+  return false
 }
 
 const selectedDiary = computed(() => {
@@ -263,21 +158,10 @@ const diarySummary = computed(() => {
   return raw.replace(/\n/g, ' ').slice(0, 80) + (raw.length > 80 ? '...' : '')
 })
 
-function moodEmoji(mood) {
-  return MOOD_MAP[mood]?.emoji || '😐'
-}
-
-function moodLabel(mood) {
-  return MOOD_MAP[mood]?.label || '一般'
-}
-
 function changeMonth(delta) {
-  let m = currentMonth.value + delta
-  let y = currentYear.value
-  if (m < 0) { m = 11; y-- }
-  else if (m > 11) { m = 0; y++ }
-  currentMonth.value = m
-  currentYear.value = y
+  const shifted = shiftCalendarMonth(currentYear.value, currentMonth.value, delta)
+  currentYear.value = shifted.year
+  currentMonth.value = shifted.month
 }
 
 function selectDay(day) {
@@ -323,8 +207,8 @@ onMounted(async () => {
     const allDiaries = await DiaryRepository.getAll()
     const map = new Map()
     for (const d of allDiaries) {
-      if (d.created_at) {
-        const dateStr = d.created_at.slice(0, 10)
+      const dateStr = diaryTimestampToLocalDateKey(d.created_at)
+      if (dateStr) {
         // 检查是否有关联的段落
         let hasSegment = false
         let chapterLabel = ''
@@ -348,7 +232,7 @@ onMounted(async () => {
 
     // 默认选中今天
     const today = new Date()
-    selectedDate.value = formatDate(today.getFullYear(), today.getMonth(), today.getDate())
+    selectedDate.value = formatCalendarDate(today.getFullYear(), today.getMonth(), today.getDate())
   } catch (e) {
     console.error('[Calendar] 加载失败:', e)
   } finally {
@@ -466,39 +350,6 @@ onMounted(async () => {
   padding: 4px;
 }
 
-/* 月份切换器 */
-.month-switcher {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--spacing-lg);
-  padding: var(--spacing-sm) var(--spacing-md);
-  margin-bottom: var(--spacing-sm);
-}
-
-.month-arrow {
-  background: transparent;
-  color: #666666;
-  padding: 4px 8px;
-}
-
-.month-labels {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-md);
-}
-
-.month-adjacent {
-  font-size: var(--font-size-sm);
-  color: #999999;
-}
-
-.month-current {
-  font-size: var(--font-size-lg);
-  font-weight: 600;
-  color: #333333;
-}
-
 /* 筛选标签 */
 .filter-tags {
   display: flex;
@@ -521,120 +372,13 @@ onMounted(async () => {
   color: #FFFFFF;
 }
 
-/* 星期标题 */
-.weekdays {
-  display: grid;
-  grid-template-columns: repeat(7, 1fr);
-  padding: 0 var(--spacing-md);
-  margin-bottom: var(--spacing-xs);
-}
-
-.weekdays span {
-  text-align: center;
-  font-size: 12px;
-  color: #888888;
-  font-weight: 500;
-}
-
-/* 月历网格 */
-.calendar-grid {
-  display: grid;
-  grid-template-columns: repeat(7, 1fr);
-  gap: 2px;
-  padding: 0 var(--spacing-md);
-  margin-bottom: var(--spacing-md);
-}
-
-.cal-day {
-  aspect-ratio: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 2px;
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-  transition: all 0.15s;
-  position: relative;
-}
-
-.day-number {
-  font-size: 13px;
-  color: #666666;
-  z-index: 1;
-}
-
-.cal-day.other-month .day-number {
-  color: #CCCCCC;
-}
-
-.cal-day.has-diary .day-number {
-  color: #333333;
-  font-weight: 500;
-}
-
-/* 6.2 修复：筛选时灰化不符合条件的日期 */
-.cal-day.dimmed {
-  opacity: 0.3;
-}
-
-/* 心情背景色 */
-.cal-day.mood-good {
-  background: #E8F5E9;
-}
-
-.cal-day.mood-ok {
-  background: #FFF8E1;
-}
-
-.cal-day.mood-calm {
-  background: #E3F2FD;
-}
-
-.cal-day.mood-low {
-  background: #FCE4EC;
-}
-
-.cal-day.mood-tired {
-  background: #F5F5F5;
-}
-
-/* 选中高亮 */
-.cal-day.selected {
-  border: 2px solid #C45C3E;
-  box-sizing: border-box;
-}
-
-.day-dot {
-  width: 4px;
-  height: 4px;
-  border-radius: 50%;
-  background: #C45C3E;
-  position: absolute;
-  bottom: 4px;
-}
-
-/* 心情图例 */
-.mood-legend {
-  display: flex;
-  gap: var(--spacing-md);
-  padding: 0 var(--spacing-md);
-  margin-bottom: var(--spacing-md);
-  flex-wrap: wrap;
-}
-
-.legend-item {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 12px;
-  color: #888888;
-}
-
-.legend-dot {
-  width: 12px;
-  height: 12px;
-  border-radius: 3px;
+.calendar-overview-wrap {
+  margin: 0 var(--spacing-md) var(--spacing-md);
+  padding: 14px 12px;
+  border: 1px solid #efe5df;
+  border-radius: 20px;
+  background: #fffdfb;
+  box-shadow: 0 8px 24px rgba(85, 58, 46, 0.06);
 }
 
 /* 日记卡片 */

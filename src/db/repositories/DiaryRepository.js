@@ -7,9 +7,16 @@ export const DiaryRepository = {
   async create(data) {
     const tagsJson = JSON.stringify(data.behavior_tags || [])
     execute(
-      `INSERT INTO diary_entries (day_number, raw_text, behavior_tags, is_blank_day, mood)
-       VALUES (?, ?, ?, ?, ?)`,
-      [data.day_number, data.raw_text, tagsJson, data.is_blank_day ? 1 : 0, data.mood || null]
+      `INSERT INTO diary_entries (day_number, raw_text, behavior_tags, is_blank_day, mood, weather)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [
+        data.day_number,
+        data.raw_text,
+        tagsJson,
+        data.is_blank_day ? 1 : 0,
+        data.mood || null,
+        data.weather || null
+      ]
     )
     // 同步取 last_insert_rowid，避免 await markWrite 期间被并发 INSERT 覆盖
     const row = queryOne('SELECT last_insert_rowid() AS id')
@@ -41,7 +48,7 @@ export const DiaryRepository = {
   },
 
   async update(id, fields) {
-    const allowed = ['raw_text', 'behavior_tags', 'is_blank_day', 'mood']
+    const allowed = ['raw_text', 'behavior_tags', 'is_blank_day', 'mood', 'weather']
     const keys = Object.keys(fields).filter(k => allowed.includes(k))
     if (keys.length === 0) return false
     // behavior_tags 若为数组则序列化

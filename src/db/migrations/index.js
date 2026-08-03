@@ -86,6 +86,14 @@ const migrations = {
       try { db.run(`ALTER TABLE story_plan ADD COLUMN ${name} ${definition}`) }
       catch (e) { if (!String(e.message).includes('duplicate column')) throw e }
     }
+  },
+  // 版本 8：日记天气选择持久化
+  8: async (db) => {
+    try {
+      db.run(`ALTER TABLE diary_entries ADD COLUMN weather TEXT DEFAULT NULL`)
+    } catch (e) {
+      if (!String(e.message).includes('duplicate column')) throw e
+    }
   }
 }
 

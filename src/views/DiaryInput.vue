@@ -3,7 +3,9 @@
     <!-- 顶部栏 -->
     <header class="top-bar">
       <button class="top-btn cancel" @click="goBack">取消</button>
-      <span class="date-text">{{ dateLabel }}</span>
+      <button type="button" class="date-picker-button" aria-label="打开月度日历" @click="calendarOpen = true">
+        {{ dateLabel }} <span aria-hidden="true">⌄</span>
+      </button>
       <button class="top-btn done" :disabled="!canGenerate" @click="generate">{{ generating ? '...' : '完成' }}</button>
     </header>
 
@@ -11,14 +13,34 @@
     <div class="diary-body">
       <!-- 心情 + 天气 -->
       <div class="mood-weather">
-        <button class="mood-picker" @click="cycleMood">
-          <span class="mood-emoji">{{ moodEmoji }}</span>
-          <span class="mood-label">{{ moodLabel }}</span>
+        <button
+          type="button"
+          class="selection-trigger"
+          :class="{ active: activePicker === 'mood' }"
+          aria-label="选择心情"
+          @click="togglePicker('mood')"
+        >
+          <span class="trigger-icon" :class="`tone-${selectedMood.tone}`">{{ selectedMood.emoji }}</span>
+          <span class="trigger-copy">
+            <small>此刻心情</small>
+            <strong>{{ selectedMood.label }}</strong>
+          </span>
+          <span class="trigger-arrow" aria-hidden="true">⌄</span>
         </button>
-        <div class="weather-info">
-          <span class="weather-icon">{{ weatherIcon }}</span>
-          <span class="weather-text">{{ weatherText }}</span>
-        </div>
+        <button
+          type="button"
+          class="selection-trigger weather-trigger"
+          :class="{ active: activePicker === 'weather' }"
+          aria-label="选择天气"
+          @click="togglePicker('weather')"
+        >
+          <span class="trigger-icon" :class="`tone-${selectedWeather.tone}`">{{ selectedWeather.emoji }}</span>
+          <span class="trigger-copy">
+            <small>今日天气</small>
+            <strong>{{ selectedWeather.label }}</strong>
+          </span>
+          <span class="trigger-arrow" aria-hidden="true">⌄</span>
+        </button>
       </div>
 
       <!-- 引导标题 -->
@@ -80,6 +102,31 @@
       </div>
     </div>
 
+    <SelectionSheet
+      :open="activePicker === 'mood'"
+      title="现在的心情如何呢？"
+      :options="MOOD_OPTIONS"
+      :model-value="moodKey"
+      :columns="5"
+      @update:model-value="selectMood"
+      @close="activePicker = null"
+    />
+    <MonthlyOverviewSheet
+      :open="calendarOpen"
+      :diaries-by-date="diariesByDate"
+      :initial-date="todayDate"
+      @close="calendarOpen = false"
+    />
+    <SelectionSheet
+      :open="activePicker === 'weather'"
+      title="今天是什么天气？"
+      :options="WEATHER_OPTIONS"
+      :model-value="weatherKey"
+      :columns="3"
+      @update:model-value="selectWeather"
+      @close="activePicker = null"
+    />
+
     <!-- 底部生成按钮 -->
     <footer class="footer">
       <p v-if="networkError" class="network-error">{{ networkError }}</p>
@@ -101,6 +148,19 @@ import { DiaryRepository } from '@/db/repositories/DiaryRepository'
 import { UserRepository } from '@/db/repositories/UserRepository'
 import BehaviorTags from '@/components/BehaviorTags.vue'
 import VoiceInput from '@/components/VoiceInput.vue'
+import SelectionSheet from '@/components/SelectionSheet.vue'
+import MonthlyOverviewSheet from '@/components/MonthlyOverviewSheet.vue'
+import { formatCalendarDate, diaryTimestampToLocalDateKey } from '@/features/diary/monthCalendar.js'
+import { persistDiaryDraft } from '@/features/diary/diaryDraft.js'
+import {
+  MOOD_OPTIONS,
+  WEATHER_OPTIONS,
+  DEFAULT_MOOD_KEY,
+  DEFAULT_WEATHER_KEY,
+  resolveSelectionKey,
+  resolveStoredSelections,
+  overlayTodaySelection
+} from '@/features/diary/moodWeatherOptions.js'
 
 const router = useRouter()
 
@@ -124,15 +184,6 @@ const QUESTION_POOL = [
   { icon: '🧭', text: '今天的方向感如何？是否找到了目标？' }
 ]
 
-// 心情选项
-const MOODS = [
-  { key: 'good', emoji: '😊', label: '心情不错' },
-  { key: 'ok', emoji: '😐', label: '还行' },
-  { key: 'calm', emoji: '😌', label: '平静' },
-  { key: 'low', emoji: '😔', label: '低落' },
-  { key: 'tired', emoji: '😴', label: '疲惫' }
-]
-
 // 响应式状态
 const dayNumber = ref(0)
 const answers = ref(['', '', '', ''])
@@ -143,10 +194,21 @@ const voiceError = ref('')
 const networkError = ref('')
 const existingDiary = ref(null)
 const showFree = ref(false)
-const moodIndex = ref(0)
+const moodKey = ref(DEFAULT_MOOD_KEY)
+const weatherKey = ref(DEFAULT_WEATHER_KEY)
+const activePicker = ref(null)
+const calendarOpen = ref(false)
+const persistedDiariesByDate = ref(new Map())
 const currentQuestions = ref([])
-const weatherText = ref('22°C·晴')
-const weatherIcon = ref('☀️')
+
+const now = new Date()
+const todayDate = formatCalendarDate(now.getFullYear(), now.getMonth(), now.getDate())
+const diariesByDate = computed(() => overlayTodaySelection(
+  persistedDiariesByDate.value,
+  todayDate,
+  moodKey.value,
+  weatherKey.value
+))
 
 // 日期标签
 const dateLabel = computed(() => {
@@ -155,8 +217,26 @@ const dateLabel = computed(() => {
   return `${d.getMonth() + 1}月${d.getDate()}日 ${weeks[d.getDay()]}`
 })
 
-const moodEmoji = computed(() => MOODS[moodIndex.value].emoji)
-const moodLabel = computed(() => MOODS[moodIndex.value].label)
+const selectedMood = computed(() =>
+  MOOD_OPTIONS.find(item => item.key === moodKey.value) || MOOD_OPTIONS[0]
+)
+const selectedWeather = computed(() =>
+  WEATHER_OPTIONS.find(item => item.key === weatherKey.value) || WEATHER_OPTIONS[0]
+)
+
+async function loadDiaryOverview() {
+  try {
+    const allDiaries = await DiaryRepository.getAll()
+    const map = new Map()
+    for (const diary of allDiaries) {
+      const dateKey = diaryTimestampToLocalDateKey(diary.created_at)
+      if (dateKey) map.set(dateKey, diary)
+    }
+    persistedDiariesByDate.value = map
+  } catch (error) {
+    console.warn('[DiaryInput] 月历数据加载失败:', error)
+  }
+}
 
 const totalCharCount = computed(() => {
   const answersCount = answers.value.reduce((sum, a) => sum + a.length, 0)
@@ -197,24 +277,37 @@ function onFreeInput() {
 
 function scheduleDraft() {
   clearTimeout(saveTimer)
-  saveTimer = setTimeout(() => {
-    if (dayNumber.value > 0) {
-      try {
-        localStorage.setItem(draftKey(), JSON.stringify({
-          answers: answers.value,
-          freeText: freeText.value,
-          mood: moodIndex.value,
-          // 5.4 修复：保存 currentQuestions 以便恢复时回答与问题对应
-          currentQuestions: currentQuestions.value
-        }))
-      } catch (e) { /* ignore */ }
-    }
-  }, 500)
+  saveTimer = setTimeout(saveDraftNow, 500)
 }
 
-function cycleMood() {
-  moodIndex.value = (moodIndex.value + 1) % MOODS.length
-  scheduleDraft()
+function saveDraftNow() {
+  clearTimeout(saveTimer)
+  saveTimer = null
+  if (dayNumber.value <= 0) return
+  try {
+    persistDiaryDraft(localStorage, draftKey(), {
+      answers: answers.value,
+      freeText: freeText.value,
+      mood: moodKey.value,
+      weather: weatherKey.value,
+      // 5.4 修复：保存 currentQuestions 以便恢复时回答与问题对应
+      currentQuestions: currentQuestions.value
+    })
+  } catch (e) { /* ignore */ }
+}
+
+function togglePicker(type) {
+  activePicker.value = activePicker.value === type ? null : type
+}
+
+function selectMood(key) {
+  moodKey.value = key
+  saveDraftNow()
+}
+
+function selectWeather(key) {
+  weatherKey.value = key
+  saveDraftNow()
 }
 
 function changeQuestions() {
@@ -263,7 +356,8 @@ async function generate() {
       raw_text: combinedText.value,
       behavior_tags: tags.value,
       is_blank_day: false,
-      mood: MOODS[moodIndex.value].key
+      mood: moodKey.value,
+      weather: weatherKey.value
     }
 
     let diaryId
@@ -301,6 +395,9 @@ onMounted(async () => {
     return
   }
 
+  let draftMood
+  let draftWeather
+
   // 恢复草稿
   try {
     const draft = localStorage.getItem(draftKey())
@@ -312,7 +409,10 @@ onMounted(async () => {
       }
       if (parsed.answers) answers.value = parsed.answers
       if (parsed.freeText) { freeText.value = parsed.freeText; showFree.value = true }
-      if (parsed.mood !== undefined) moodIndex.value = parsed.mood
+      draftMood = parsed.mood
+      draftWeather = parsed.weather
+      moodKey.value = resolveSelectionKey(draftMood, MOOD_OPTIONS, DEFAULT_MOOD_KEY)
+      weatherKey.value = resolveSelectionKey(draftWeather, WEATHER_OPTIONS, DEFAULT_WEATHER_KEY)
     }
   } catch (e) { /* ignore */ }
 
@@ -328,22 +428,25 @@ onMounted(async () => {
         showFree.value = true
       }
       try { tags.value = JSON.parse(exist.behavior_tags || '[]') } catch { tags.value = [] }
-      // 恢复 mood 状态（兼容旧数据无 mood 列的情况）
-      if (exist.mood) {
-        const moodObj = MOODS.findIndex(m => m.key === exist.mood)
-        if (moodObj >= 0) moodIndex.value = moodObj
-      }
+      // 草稿优先于已保存日记；同时兼容旧数据字段和旧心情 key
+      const selections = resolveStoredSelections({
+        draftMood,
+        draftWeather,
+        diaryMood: exist.mood,
+        diaryWeather: exist.weather
+      })
+      moodKey.value = selections.mood
+      weatherKey.value = selections.weather
     }
   } catch (e) {
     console.warn('[DiaryInput] 检查今日记录失败:', e)
   }
 
-  // 尝试获取天气（简单实现：使用默认值，实际可接入天气 API）
-  // weatherText 和 weatherIcon 已有默认值
+  await loadDiaryOverview()
 })
 
 onBeforeUnmount(() => {
-  clearTimeout(saveTimer)
+  if (saveTimer !== null) saveDraftNow()
   clearTimeout(voiceErrorTimer)
 })
 </script>
@@ -384,10 +487,29 @@ onBeforeUnmount(() => {
   color: var(--color-text-tertiary);
 }
 
-.date-text {
+.date-picker-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 38px;
+  padding: 6px 12px;
+  border: 1px solid rgba(196, 92, 62, 0.16);
+  border-radius: 999px;
+  background: var(--color-surface);
+  box-shadow: 0 3px 10px rgba(80, 53, 42, 0.05);
+  color: var(--color-text);
   font-size: var(--font-size-base);
   font-weight: 600;
-  color: var(--color-text);
+}
+
+.date-picker-button span {
+  color: var(--color-primary);
+  font-size: 14px;
+}
+
+.date-picker-button:focus-visible {
+  outline: 3px solid rgba(196, 92, 62, 0.22);
+  outline-offset: 2px;
 }
 
 /* 主体 */
@@ -400,42 +522,102 @@ onBeforeUnmount(() => {
 
 /* 心情 + 天气 */
 .mood-weather {
+  position: relative;
+  z-index: 1001;
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 10px;
   padding: var(--spacing-sm) 0;
   margin-bottom: var(--spacing-md);
 }
 
-.mood-picker {
+.selection-trigger {
+  flex: 1;
   display: flex;
   align-items: center;
-  gap: var(--spacing-sm);
-  background: transparent;
+  min-width: 0;
+  min-height: 60px;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 16px;
+  background: var(--color-surface);
+  box-shadow: 0 4px 14px rgba(80, 53, 42, 0.05);
+  text-align: left;
 }
 
-.mood-emoji {
-  font-size: 24px;
+.selection-trigger.active {
+  border-color: rgba(196, 92, 62, 0.5);
+  background: #fff8f4;
+  box-shadow: 0 0 0 3px rgba(196, 92, 62, 0.08);
 }
 
-.mood-label {
-  font-size: var(--font-size-sm);
+.selection-trigger:focus-visible {
+  outline: 3px solid rgba(196, 92, 62, 0.22);
+  outline-offset: 2px;
+}
+
+.trigger-icon {
+  display: grid;
+  width: 40px;
+  height: 40px;
+  flex: 0 0 40px;
+  place-items: center;
+  border-radius: 14px 15px 13px 16px;
+  font-size: 23px;
+  box-shadow: inset 0 2px 3px rgba(255, 255, 255, 0.75);
+}
+
+.trigger-icon.tone-red { background: linear-gradient(145deg, #ff9e8b, #ef5f51); }
+.trigger-icon.tone-coral { background: linear-gradient(145deg, #ffd2bd, #ff8f70); }
+.trigger-icon.tone-orange { background: linear-gradient(145deg, #ffd99a, #f5a749); }
+.trigger-icon.tone-yellow { background: linear-gradient(145deg, #fff0a5, #f6c94b); }
+.trigger-icon.tone-brown { background: linear-gradient(145deg, #d7a17e, #9b624e); }
+.trigger-icon.tone-blue { background: linear-gradient(145deg, #b8cbff, #6f8df1); }
+.trigger-icon.tone-lime { background: linear-gradient(145deg, #e2f98b, #a7d83d); }
+.trigger-icon.tone-sky { background: linear-gradient(145deg, #c4e7ff, #67afea); }
+.trigger-icon.tone-cyan { background: linear-gradient(145deg, #bff5f2, #55cfd1); }
+.trigger-icon.tone-green { background: linear-gradient(145deg, #c4f3c6, #62c983); }
+.trigger-icon.tone-gray { background: linear-gradient(145deg, #e9ecef, #b7c0c8); }
+
+.trigger-copy {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  line-height: 1.3;
+}
+
+.trigger-copy small {
+  color: var(--color-text-tertiary);
+  font-size: 10px;
+  font-weight: 500;
+}
+
+.trigger-copy strong {
+  overflow: hidden;
   color: var(--color-text);
+  font-size: 14px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.weather-info {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.weather-icon {
+.trigger-arrow {
+  flex: 0 0 auto;
+  color: var(--color-text-tertiary);
   font-size: 16px;
+  transition: transform 0.2s ease;
 }
 
-.weather-text {
-  font-size: var(--font-size-sm);
-  color: var(--color-text-secondary);
+.selection-trigger.active .trigger-arrow {
+  transform: rotate(180deg);
+}
+
+@media (max-width: 360px) {
+  .mood-weather { gap: 7px; }
+  .selection-trigger { gap: 7px; padding-right: 7px; padding-left: 7px; }
+  .trigger-icon { width: 36px; height: 36px; flex-basis: 36px; font-size: 21px; }
 }
 
 /* 引导标题 */
