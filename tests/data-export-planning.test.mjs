@@ -24,7 +24,7 @@ execute(`INSERT INTO story_plan (day_number, segment_id, schema_version, plan_js
 await markWrite(true)
 
 const backup = await exportData()
-assert.equal(backup.version, '1.1')
+assert.equal(backup.version, '1.2')
 assert.equal(Object.hasOwn(backup.user_settings, 'api_key_encrypted'), false, '导出不得包含设备 API Key')
 assert.equal(backup.diary_entries[0].mood, '平静')
 assert.equal(backup.story_segments[0].diary_references, '[{"diarySnippet":"整理调查笔记"}]')

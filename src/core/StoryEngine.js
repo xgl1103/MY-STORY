@@ -40,6 +40,7 @@ import RAGRetriever from '../memory/RAGRetriever.js';
 import { StoryRAGRetriever } from '../memory/StoryRAGRetriever.js';
 import { MemoExtractor } from '../ai/MemoExtractor.js';
 import StoryPlanner from '../ai/StoryPlanner.js';
+import StoryRewriter from '../ai/StoryRewriter.js';
 import NarrativeGraph from './NarrativeGraph.js';
 import { EntityRepository } from '../db/repositories/EntityRepository.js';
 import { ForeshadowingRepository } from '../db/repositories/ForeshadowingRepository.js';
@@ -90,6 +91,7 @@ class StoryEngine {
       handoffRepo: this.handoffRepo,
     });
     this.storyPlanner = new StoryPlanner();
+    this.storyRewriter = new StoryRewriter();
     this.narrativeGraph = new NarrativeGraph(this.worldRepo, repos.narrativeRepo);
 
     // 并发控制
@@ -304,68 +306,21 @@ class StoryEngine {
       // 解析 AI 输出：分离故事正文和日记引用标注
       const parsed1 = this._parseStoryAndReferences(draftResult.content);
 
-      // 9. 步骤6：内部审查（2 轮）— 只审查正文部分
-      let reviewResult = await this.reviewLoop.run(
-        parsed1.content,
-        prompt.systemPrompt,
-        aiContext.adapter,
-        aiContext.apiKey,
-        aiContext.baseUrl,
-        { temperature: 0.3, maxTokens: 3000, continuityContext: prompt.continuityContext, storyPlanContext: prompt.storyPlanContext }
-      );
-
-      // 审查模型若给出问题（包括格式不完整但明确不通过），先用同一份计划定向
-      // 重写一次再审查，避免把模型协议波动直接暴露为用户侧生成失败。
-      if (!reviewResult.passed) {
-        const repaired = await this._repairPlanCompliance(reviewResult.finalContent || parsed1.content, reviewResult.issues, prompt.systemPrompt, aiContext, prompt.storyPlanContext)
-        if (repaired.success) {
-          reviewResult = await this.reviewLoop.run(
-            repaired.content, prompt.systemPrompt, aiContext.adapter, aiContext.apiKey, aiContext.baseUrl,
-            { temperature: 0.2, maxTokens: 3600, continuityContext: prompt.continuityContext, storyPlanContext: prompt.storyPlanContext }
-          )
-        }
-      }
-
-      // 用专用方法更新 internal_review_count（P0-2 修复）
-      await this.segmentRepo.updateReviewCount(segmentId, reviewResult.totalRounds);
-
-      if (!reviewResult.passed) {
+      // 9. 场景合同审查：Critical 只返回分级证据，唯一 Rewriter 负责修复。
+      const contractResult = await this._runSceneContractPipeline(parsed1.content, prompt, aiContext)
+      await this.segmentRepo.updateReviewCount(segmentId, contractResult.reviewCount)
+      if (!contractResult.success) {
         await this.segmentRepo.updateStatus(segmentId, 'generate_failed');
         return {
           success: false,
           segmentId,
-          error: `内容审查未通过：${(reviewResult.issues || []).join('；') || '请重新生成'}`,
+          error: contractResult.error,
           errorCode: 'E007',
         };
       }
 
-      // 10. 步骤7：润色
-      let finalContent = reviewResult.finalContent;
-      const polishResult = await this._polish(
-        finalContent, prompt.systemPrompt, aiContext, user, prompt.continuityContext, prompt.storyPlanContext
-      );
-      if (polishResult.success && polishResult.content) {
-        finalContent = polishResult.content;
-      }
-
-      let postPolishReview = await this.reviewLoop.verify(
-        finalContent, prompt.systemPrompt, aiContext.adapter, aiContext.apiKey, aiContext.baseUrl,
-        { temperature: 0.2, maxTokens: 3000, continuityContext: prompt.continuityContext, storyPlanContext: prompt.storyPlanContext }
-      )
-      if (!postPolishReview.passed) {
-        const repaired = await this._repairPlanCompliance(postPolishReview.finalContent || finalContent, postPolishReview.issues, prompt.systemPrompt, aiContext, prompt.storyPlanContext)
-        if (repaired.success) {
-          postPolishReview = await this.reviewLoop.verify(
-            repaired.content, prompt.systemPrompt, aiContext.adapter, aiContext.apiKey, aiContext.baseUrl,
-            { temperature: 0.15, maxTokens: 3000, continuityContext: prompt.continuityContext, storyPlanContext: prompt.storyPlanContext }
-          )
-        }
-      }
-      if (!postPolishReview.passed) {
-        await this.segmentRepo.updateStatus(segmentId, 'generate_failed')
-        return { success: false, segmentId, error: `润色后连贯性复核未通过：${(postPolishReview.issues || []).join('；')}`, errorCode: 'E007' }
-      }
-      finalContent = postPolishReview.finalContent
+      // 10. 润色是可回退的低风险步骤；若破坏 P0 硬事实，保留已通过合同的版本。
+      let finalContent = await this._polishWithRollback(contractResult.content, prompt, aiContext, user)
 
       const qualityResult = await this._enforceContentQuality(finalContent, {
         systemPrompt: prompt.systemPrompt,
@@ -390,7 +345,7 @@ class StoryEngine {
       await this.segmentRepo.commitDraft(segmentId, {
         content: finalContent,
         references: parsed1.references,
-        reviewCount: reviewResult.totalRounds,
+        reviewCount: contractResult.reviewCount,
       })
       await this.storyPlanRepo.markUsed(storyPlanRecord.id)
 
@@ -601,63 +556,18 @@ class StoryEngine {
       // 解析 AI 输出：分离故事正文和日记引用标注
       const parsed2 = this._parseStoryAndReferences(draftResult.content);
 
-      // 审查 — 只审查正文部分
-      let reviewResult = await this.reviewLoop.run(
-        parsed2.content,
-        prompt.systemPrompt,
-        aiContext.adapter,
-        aiContext.apiKey,
-        aiContext.baseUrl,
-        { temperature: 0.3, maxTokens: 3000, continuityContext: prompt.continuityContext, storyPlanContext: prompt.storyPlanContext }
-      );
-
-      if (!reviewResult.passed) {
-        const repaired = await this._repairPlanCompliance(reviewResult.finalContent || parsed2.content, reviewResult.issues, prompt.systemPrompt, aiContext, prompt.storyPlanContext)
-        if (repaired.success) {
-          reviewResult = await this.reviewLoop.run(
-            repaired.content, prompt.systemPrompt, aiContext.adapter, aiContext.apiKey, aiContext.baseUrl,
-            { temperature: 0.2, maxTokens: 3600, continuityContext: prompt.continuityContext, storyPlanContext: prompt.storyPlanContext }
-          )
-        }
-      }
-
-      if (!reviewResult.passed) {
+      const contractResult = await this._runSceneContractPipeline(parsed2.content, prompt, aiContext)
+      if (!contractResult.success) {
         await this.segmentRepo.updateStatus(segmentId, 'generate_failed');
         return {
           success: false,
           segmentId,
-          error: `内容审查未通过：${(reviewResult.issues || []).join('；') || '请重新生成'}`,
+          error: contractResult.error,
           errorCode: 'E007',
         };
       }
 
-      // 润色
-      let finalContent = reviewResult.finalContent;
-      const polishResult = await this._polish(
-        finalContent, prompt.systemPrompt, aiContext, user, prompt.continuityContext, prompt.storyPlanContext
-      );
-      if (polishResult.success && polishResult.content) {
-        finalContent = polishResult.content;
-      }
-
-      let postPolishReview = await this.reviewLoop.verify(
-        finalContent, prompt.systemPrompt, aiContext.adapter, aiContext.apiKey, aiContext.baseUrl,
-        { temperature: 0.2, maxTokens: 3000, continuityContext: prompt.continuityContext, storyPlanContext: prompt.storyPlanContext }
-      )
-      if (!postPolishReview.passed) {
-        const repaired = await this._repairPlanCompliance(postPolishReview.finalContent || finalContent, postPolishReview.issues, prompt.systemPrompt, aiContext, prompt.storyPlanContext)
-        if (repaired.success) {
-          postPolishReview = await this.reviewLoop.verify(
-            repaired.content, prompt.systemPrompt, aiContext.adapter, aiContext.apiKey, aiContext.baseUrl,
-            { temperature: 0.15, maxTokens: 3000, continuityContext: prompt.continuityContext, storyPlanContext: prompt.storyPlanContext }
-          )
-        }
-      }
-      if (!postPolishReview.passed) {
-        await this.segmentRepo.updateStatus(segmentId, 'generate_failed')
-        return { success: false, segmentId, error: `润色后连贯性复核未通过：${(postPolishReview.issues || []).join('；')}`, errorCode: 'E007' }
-      }
-      finalContent = postPolishReview.finalContent
+      let finalContent = await this._polishWithRollback(contractResult.content, prompt, aiContext, user)
 
       const qualityResult = await this._enforceContentQuality(finalContent, {
         systemPrompt: prompt.systemPrompt,
@@ -683,7 +593,7 @@ class StoryEngine {
       await this.segmentRepo.commitDraft(segmentId, {
         content: finalContent,
         references: parsed2.references,
-        reviewCount: reviewResult.totalRounds,
+        reviewCount: contractResult.reviewCount,
         incrementRevision: true,
       })
       await this.storyPlanRepo.markUsed(storyPlanRecord.id)
@@ -945,6 +855,7 @@ class StoryEngine {
       segmentId,
       previousHandoffDay: previousHandoff?.day_number ?? null,
       plan: plannerResult.plan,
+      schemaVersion: plannerResult.plan?.schemaVersion || 1,
       source: plannerResult.source,
       inputFingerprint,
       validationErrors: plannerResult.validationErrors,
@@ -1129,6 +1040,56 @@ ${content}
     }
   }
 
+  // V2：Critical 只给分级证据，Rewriter 是唯一修改正文的角色。
+  async _runSceneContractPipeline(content, prompt, aiContext) {
+    const first = await this.reviewLoop.audit(
+      content, prompt.systemPrompt, aiContext.adapter, aiContext.apiKey, aiContext.baseUrl,
+      { continuityContext: prompt.continuityContext, storyPlanContext: prompt.storyPlanContext }
+    )
+    if (first.systemError) {
+      return { success: false, content, reviewCount: 1, error: this._formatCriticalError(first.findings) }
+    }
+    const actionable = first.findings.filter(item => ['P0', 'P1'].includes(item.severity))
+    if (!actionable.length) return { success: true, content, reviewCount: 1, findings: first.findings }
+
+    const rewritten = await this.storyRewriter.rewrite({
+      content, findings: actionable, systemPrompt: prompt.systemPrompt, aiContext,
+      storyPlanContext: prompt.storyPlanContext, continuityContext: prompt.continuityContext,
+    })
+    if (!rewritten.success) {
+      return { success: false, content, reviewCount: 1, error: `剧情合同修复失败：${rewritten.error || '未返回正文'}` }
+    }
+
+    // 修复后只复核 P0。P1 可记录为建议，不能再次开启无穷改稿循环。
+    const verified = await this.reviewLoop.audit(
+      rewritten.content, prompt.systemPrompt, aiContext.adapter, aiContext.apiKey, aiContext.baseUrl,
+      { continuityContext: prompt.continuityContext, storyPlanContext: prompt.storyPlanContext, hardOnly: true }
+    )
+    if (!verified.passed) {
+      return { success: false, content: rewritten.content, reviewCount: 2, error: this._formatCriticalError(verified.findings) }
+    }
+    return { success: true, content: rewritten.content, reviewCount: 2, findings: [...first.findings, ...verified.findings] }
+  }
+
+  _formatCriticalError(findings) {
+    const messages = (findings || []).filter(item => item.severity === 'P0').map(item => `[${item.code}] ${item.issue}`)
+    return `内容审查未通过：${messages.join('；') || 'Critical 未能确认正文符合剧情合同'}`
+  }
+
+  async _polishWithRollback(content, prompt, aiContext, user) {
+    const polished = await this._polish(content, prompt.systemPrompt, aiContext, user, prompt.continuityContext, prompt.storyPlanContext)
+    if (!polished.success || !polished.content) return content
+    const verification = await this.reviewLoop.audit(
+      polished.content, prompt.systemPrompt, aiContext.adapter, aiContext.apiKey, aiContext.baseUrl,
+      { continuityContext: prompt.continuityContext, storyPlanContext: prompt.storyPlanContext, hardOnly: true, maxTokens: 1000 }
+    )
+    if (!verification.passed) {
+      console.warn('[StoryEngine] 润色破坏 P0 剧情合同，回退到润色前版本:', this._formatCriticalError(verification.findings))
+      return content
+    }
+    return polished.content
+  }
+
   _getQualityRepairAction(assessment) {
     if (assessment.charCount < ContentQualityGate.limits.minChars || !assessment.hasCompleteEnding) {
       return '续写并补足：在不改变已有剧情的前提下补齐必要场景、行动和收束句，形成完整段落。';
@@ -1149,7 +1110,8 @@ ${content}
           systemPrompt,
           // 使用 split-join 替换防止 $ 注入
           userPrompt: `${PromptBuilder.POLISH_PROMPT.split('{content}').join(content)}\n\n【不得违反的既有叙事事实】\n${continuityContext}\n\n【不得破坏的当天剧情计划】\n${storyPlanContext}`,
-          temperature: 0.7,
+          // 润色只做低风险表达优化，禁止用高温度重新编排剧情。
+          temperature: Math.min(Number(user.ai_temperature || 0.5), 0.4),
           maxTokens: user.ai_max_tokens || 2000,
         });
       }, '润色');

@@ -254,7 +254,7 @@ class PromptBuilder {
 
 {story_plan}
 
-这不是可选参考。正文必须承接开场、让日记和用户选择造成后果，并且不得违反“禁止改变”。`;
+这不是可选参考。正文必须承接开场、让日记和用户选择造成后果，并且不得违反“禁止改变”。场景合同中的每个动作和状态变化必须发生；可改变文学表达，不可删除因果。`;
 
     // 放在 Prompt 末尾，降低长上下文导致模型忽略当日日记的概率。
     this.DAILY_COVERAGE_TEMPLATE = `【最终硬约束：当日日记必须覆盖】
@@ -530,6 +530,7 @@ class PromptBuilder {
 
   _buildStoryPlan(plan) {
     if (!plan || typeof plan !== 'object') return ''
+    if (Number(plan.schemaVersion) === 2) return this._buildSceneContract(plan)
     const lines = []
     const opening = plan.openingBridge || {}
     lines.push(`【开场承接】${opening.sourceFact || '承接上一日结尾'}；第一场景：${opening.firstSceneAction || '自然继续'}`)
@@ -543,6 +544,29 @@ class PromptBuilder {
     if (plan.endingTarget?.state) lines.push(`【今日结束状态】${plan.endingTarget.state}${plan.endingTarget.nextHook ? `；下一日钩子：${plan.endingTarget.nextHook}` : ''}`)
     const forbidden = Array.isArray(plan.forbiddenChanges) ? plan.forbiddenChanges : []
     if (forbidden.length) lines.push(`【禁止改变】\n${forbidden.map(item => `- ${item}`).join('\n')}`)
+    return PromptBuilder._safeReplace(this.STORY_PLAN_TEMPLATE, '{story_plan}', lines.join('\n\n'))
+  }
+
+  _buildSceneContract(plan) {
+    const lines = []
+    const opening = plan.openingContract || {}
+    lines.push(`【开场合同】上一日状态：${opening.previousState || '承接上一日结尾'}\n第一动作：${opening.requiredFirstAction || '自然承接'}\n验收：${opening.completionEvidence || '正文开头完成该动作及直接结果'}`)
+    const scenes = Array.isArray(plan.scenes) ? plan.scenes : []
+    if (scenes.length) {
+      lines.push(`【必须按因果完成的场景】\n${scenes.map((scene, index) => {
+        const diary = Array.isArray(scene.diaryEventIds) && scene.diaryEventIds.length ? `；对应日记：${scene.diaryEventIds.join('、')}` : ''
+        const choice = Array.isArray(scene.choiceEffectIds) && scene.choiceEffectIds.length ? `；对应选择后果：${scene.choiceEffectIds.join('、')}` : ''
+        return `${index + 1}. ${scene.sceneId}｜${scene.time}｜${scene.location}\n   目的：${scene.purpose}\n   必须动作：${(scene.requiredActions || []).join('；')}\n   必须状态变化：${(scene.stateChanges || []).join('；')}${diary}${choice}`
+      }).join('\n')}`)
+    }
+    const transitions = Array.isArray(plan.transitionContracts) ? plan.transitionContracts : []
+    if (transitions.length) lines.push(`【场景桥接】\n${transitions.map(item => `- ${item.fromSceneId} → ${item.toSceneId}：${item.mustExplain}`).join('\n')}`)
+    if (plan.choiceConsequence) lines.push(`【用户命运后果】${plan.choiceConsequence.choice}；类型：${plan.choiceConsequence.impactType}；具体代价：${plan.choiceConsequence.consequence}`)
+    const ending = plan.endingContract || {}
+    lines.push(`【结束合同】结果状态：${ending.resultingState || '推进当前目标'}；下一步动作：${ending.nextAction || '留下可执行行动'}；阻碍/风险：${ending.blockingRisk || '保留与主线相关的未知风险'}`)
+    const forbidden = Array.isArray(plan.forbiddenChanges) ? plan.forbiddenChanges : []
+    if (forbidden.length) lines.push(`【禁止改变】\n${forbidden.map(item => `- ${item}`).join('\n')}`)
+    lines.push('【写前静默自检】S1 开场动作已完成；每个 D 日记编号都有动作与后果；选择后果出现明确代价；跨场景已桥接；结尾建立下一步行动与阻碍。不要输出本检查表。')
     return PromptBuilder._safeReplace(this.STORY_PLAN_TEMPLATE, '{story_plan}', lines.join('\n\n'))
   }
 

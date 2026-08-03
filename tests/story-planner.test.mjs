@@ -24,23 +24,26 @@ const context = {
 }
 
 const validPlan = {
-  schemaVersion: 1, dayNumber: 2,
-  openingBridge: { sourceFact: '林墨正把怀表嵌入暗门凹槽', firstSceneAction: '从机关启动开始' },
-  continuityAnchors: [{ fact: '铜制怀表带有陌生纹章', requiredUsage: '作为机关钥匙使用' }],
-  diaryCausality: [{ diaryEvent: '同事答应帮我调班', worldAction: '同伴替林墨代班', storyConsequence: '林墨获得调查时间并欠下人情' }],
-  choiceConsequence: { choice: '主动追踪纹章来源', impactType: '风险', consequence: '林墨亲自进入暗门并暴露行踪' },
-  beats: [
-    { order: 1, purpose: '承接', action: '启动暗门', stateChange: '暗门开启' },
-    { order: 2, purpose: '日记影响', action: '同伴代班', stateChange: '获得时间并欠下人情' },
-    { order: 3, purpose: '推进', action: '进入暗门发现证据', stateChange: '风险升级' },
+  schemaVersion: 2, dayNumber: 2,
+  openingContract: { previousState: '林墨正把怀表嵌入暗门凹槽', requiredFirstAction: '林墨将铜制怀表嵌入暗门凹槽并启动机关', timeBridgeRequired: false, completionEvidence: '正文前15%出现机关反应' },
+  scenes: [
+    { sceneId: 'S1', purpose: '承接', time: '深夜', location: '旧仓库暗门前', requiredActions: ['林墨将铜制怀表嵌入暗门凹槽并启动机关'], stateChanges: ['暗门产生明确机关反应'], diaryEventIds: [], choiceEffectIds: [], requiredFactIds: [] },
+    { sceneId: 'S2', purpose: '日记影响', time: '清晨', location: '报社', requiredActions: ['同事明确替林墨代班并让他获得调查时间'], stateChanges: ['林墨获得调查窗口并欠下具体人情'], diaryEventIds: ['D1'], choiceEffectIds: ['C-selected'], requiredFactIds: [] },
+    { sceneId: 'S3', purpose: '推进', time: '当天夜晚', location: '调查地点', requiredActions: ['林墨确认新线索并继续追查追踪者身份'], stateChanges: ['林墨行踪暴露并获得新证据'], diaryEventIds: [], choiceEffectIds: [], requiredFactIds: [] },
   ],
+  transitionContracts: [
+    { fromSceneId: 'S1', toSceneId: 'S2', mustExplain: '说明林墨离开仓库、度过夜晚并抵达报社。' },
+    { fromSceneId: 'S2', toSceneId: 'S3', mustExplain: '说明调班后林墨如何利用调查时间前往线索地点。' },
+  ],
+  continuityAnchors: [{ fact: '铜制怀表带有陌生纹章', requiredUsage: '作为机关钥匙使用' }],
+  choiceConsequence: { choice: '主动追踪纹章来源', impactType: 'exposure', consequence: '林墨亲自进入暗门后被跟踪者发现行踪。', effectId: 'C-selected' },
   entityChanges: [], foreshadowActions: [],
-  endingTarget: { state: '获得新证据并被未知者察觉', nextHook: '确认追踪者身份' },
+  endingContract: { resultingState: '获得新证据并被未知者察觉', nextAction: '林墨继续确认追踪者身份', blockingRisk: '跟踪者已经掌握林墨的行踪' },
   forbiddenChanges: ['不得把怀表改成银制'],
 }
 
 assert.equal(StoryPlanValidator.validate(validPlan, context).valid, true, '合法计划应通过本地校验')
-assert.equal(StoryPlanValidator.validate({ ...validPlan, diaryCausality: [] }, context).valid, false, '遗漏日记因果必须被拒绝')
+assert.equal(StoryPlanValidator.validate({ ...validPlan, scenes: validPlan.scenes.map(scene => ({ ...scene, diaryEventIds: [] })) }, context).valid, false, '遗漏日记场景绑定必须被拒绝')
 assert.equal(StoryPlanValidator.validate({ ...validPlan, choiceConsequence: null }, context).valid, false, '遗漏命运后果必须被拒绝')
 
 const planner = new StoryPlanner()
@@ -49,7 +52,7 @@ const planned = await planner.plan(context, {
   apiKey: 'test', baseUrl: null,
 })
 assert.equal(planned.source, 'ai')
-assert.equal(planned.plan.openingBridge.firstSceneAction, '从机关启动开始')
+assert.equal(planned.plan.openingContract.requiredFirstAction, '林墨将铜制怀表嵌入暗门凹槽并启动机关')
 
 let retryCalls = 0
 const retried = await planner.plan(context, {

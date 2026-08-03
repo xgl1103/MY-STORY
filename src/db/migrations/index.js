@@ -61,6 +61,19 @@ const migrations = {
     )`)
     db.run(`CREATE INDEX IF NOT EXISTS idx_story_plan_segment ON story_plan(segment_id)`)
     db.run(`CREATE INDEX IF NOT EXISTS idx_story_plan_day_status ON story_plan(day_number, status)`)
+  },
+  // 版本 6：日终交接单质量元数据与结构化硬事实
+  6: async (db) => {
+    const columns = [
+      ['quality_status', "TEXT NOT NULL DEFAULT 'valid'"],
+      ['quality_issues_json', 'TEXT'],
+      ['fact_records_json', 'TEXT'],
+      ['fallback_reason', 'TEXT'],
+    ]
+    for (const [name, definition] of columns) {
+      try { db.run(`ALTER TABLE day_handoff ADD COLUMN ${name} ${definition}`) }
+      catch (e) { if (!String(e.message).includes('duplicate column')) throw e }
+    }
   }
 }
 

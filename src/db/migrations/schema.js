@@ -201,6 +201,10 @@ CREATE TABLE IF NOT EXISTS day_handoff (
   choice_context_json   TEXT,
   source                TEXT NOT NULL DEFAULT 'ai',
   source_content_hash   TEXT NOT NULL,
+  quality_status        TEXT NOT NULL DEFAULT 'valid',
+  quality_issues_json   TEXT,
+  fact_records_json     TEXT,
+  fallback_reason       TEXT,
   created_at            TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at            TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (segment_id) REFERENCES story_segments(id)

@@ -11,14 +11,13 @@ const SYSTEM_PROMPT = `你是互动连载小说的编剧规划器。你的职责
 
 输出 schema：
 {
-  "schemaVersion":1,"dayNumber":数字,
-  "openingBridge":{"sourceFact":"...","firstSceneAction":"..."},
-  "continuityAnchors":[{"fact":"...","requiredUsage":"..."}],
-  "diaryCausality":[{"diaryEvent":"...","worldAction":"...","storyConsequence":"..."}],
-  "choiceConsequence":{"choice":"...","impactType":"...","consequence":"..."}|null,
-  "beats":[{"order":1,"purpose":"...","action":"...","stateChange":"..."}],
-  "entityChanges":[],"foreshadowActions":[],
-  "endingTarget":{"state":"...","nextHook":"..."},
+  "schemaVersion":2,"dayNumber":数字,
+  "openingContract":{"previousState":"完整状态","requiredFirstAction":"完整动作","timeBridgeRequired":false,"completionEvidence":"正文前15%出现动作和直接结果"},
+  "scenes":[{"sceneId":"S1","purpose":"...","time":"...","location":"...","requiredActions":["..."],"stateChanges":["..."],"diaryEventIds":["D1"],"choiceEffectIds":["C-selected"],"requiredFactIds":[]}],
+  "transitionContracts":[{"fromSceneId":"S1","toSceneId":"S2","mustExplain":"..."}],
+  "choiceConsequence":{"choice":"...","impactType":"risk|loss|exposure|obligation|relationship|resource|goal","consequence":"具体对象和代价","effectId":"C-selected"}|null,
+  "endingContract":{"resultingState":"...","nextAction":"完整可执行动作","blockingRisk":"..."},
+  "continuityAnchors":[],"entityChanges":[],"foreshadowActions":[],
   "forbiddenChanges":["..."]
 }`
 
@@ -26,7 +25,7 @@ const safeJson = value => JSON.stringify(value ?? null).slice(0, 10000)
 
 export class StoryPlanner {
   async plan(context, aiContext) {
-    const validationContext = { dayNumber: context.dayNumber, dailyEvents: context.dailyEvents, choices: context.choices, previousHandoff: context.previousHandoff }
+    const validationContext = { dayNumber: context.dayNumber, dailyEvents: context.dailyEvents, choices: context.choices, previousHandoff: context.previousHandoff, requireSchemaVersion: 2 }
     if (aiContext?.adapter) {
       try {
         const first = await this._request(context, aiContext)
@@ -72,30 +71,65 @@ export class StoryPlanner {
     const handoff = context.previousHandoff || {}
     const facts = Array.isArray(handoff.hardFacts) ? handoff.hardFacts : []
     const prohibited = Array.isArray(handoff.prohibitedChanges) ? handoff.prohibitedChanges : []
-    const openingFact = handoff.unfinished_action || handoff.immediate_next_action || handoff.active_goal || (context.dayNumber === 1 ? '这是故事的开端，主角尚未经历前情。' : '承接上一日已经建立的故事状态。')
+    const openingFact = handoff.unfinishedAction || handoff.unfinished_action || handoff.immediateNextAction || handoff.immediate_next_action || handoff.activeGoal || handoff.active_goal || (context.dayNumber === 1 ? '林墨刚刚开始接触今天的异常线索。' : '林墨正处于上一日已经建立的调查现场。')
     const events = (context.dailyEvents || []).filter(Boolean).slice(0, 4)
     const choices = (context.choices || []).filter(item => item.description || item.effect)
     const choice = choices[choices.length - 1] || null
-    const causality = (events.length ? events : ['将用户日记中的核心经历融入行动']).map(event => ({ diaryEvent: event, worldAction: `将“${event}”转化为主角在世界观内的实际行动`, storyConsequence: '该行动改变当天的资源、关系、风险或下一步目标。' }))
     const anchors = (facts.length ? facts : [openingFact]).slice(0, 5).map(fact => ({ fact, requiredUsage: '正文不得否定该事实，并让它影响当前行动。' }))
     const forbiddenChanges = [...prohibited, ...facts.map(fact => `不得无解释地否定或改变：${fact}`)].filter(Boolean).slice(0, 8)
     if (!forbiddenChanges.length) forbiddenChanges.push('不得无解释地改变上一日建立的场景、人物状态和当前目标。')
+    const eventScenes = (events.length ? events : ['处理今天的核心经历']).map((event, index) => {
+      const mapped = this._fallbackDiaryScene(event, index)
+      return {
+        sceneId: `S${index + 2}`,
+        purpose: '让用户日记改变调查路径',
+        time: index === 0 ? '当天白天' : '当天稍后',
+        location: index === 0 ? '主角的日常活动地点' : '调查线索所在地',
+        requiredActions: [mapped.action],
+        stateChanges: [mapped.consequence],
+        diaryEventIds: [`D${index + 1}`],
+        choiceEffectIds: index === events.length - 1 && choice ? ['C-selected'] : [],
+        requiredFactIds: [],
+      }
+    })
+    const scenes = [
+      {
+        sceneId: 'S1', purpose: '完成跨日承接', time: '上一日结尾后', location: '上一日结束场景',
+        requiredActions: [openingFact], stateChanges: ['上一日未完成状态获得明确推进'], diaryEventIds: [], choiceEffectIds: [], requiredFactIds: [],
+      },
+      ...eventScenes,
+      {
+        sceneId: `S${eventScenes.length + 2}`, purpose: '形成下一日钩子', time: '当天结尾', location: '当前调查地点',
+        requiredActions: ['林墨确认当天行动的结果，并准备继续追查当前线索'], stateChanges: ['形成可由下一日继续承接的新状态与明确阻碍'], diaryEventIds: [], choiceEffectIds: choice && !eventScenes.length ? ['C-selected'] : [], requiredFactIds: [],
+      },
+    ]
+    const transitions = scenes.slice(1).map((scene, index) => ({
+      fromSceneId: scenes[index].sceneId, toSceneId: scene.sceneId,
+      mustExplain: `交代从${scenes[index].sceneId}到${scene.sceneId}的时间、地点或行动衔接。`,
+    }))
+    const choiceConsequence = choice ? {
+      choice: choice.description || choice.effect,
+      impactType: 'risk', effectId: 'C-selected',
+      consequence: `${choice.effect || '主动调查'}使林墨必须亲自推进线索，并承担行踪暴露或欠下人情的具体代价。`,
+    } : null
     const plan = {
-      schemaVersion: 1, dayNumber: context.dayNumber,
-      openingBridge: { sourceFact: openingFact, firstSceneAction: `从“${openingFact}”自然开始当天第一场景。` },
+      schemaVersion: 2, dayNumber: context.dayNumber,
+      openingContract: { previousState: openingFact, requiredFirstAction: openingFact, timeBridgeRequired: false, completionEvidence: '正文前15%必须出现该动作及其直接结果。' },
+      scenes,
+      transitionContracts: transitions,
       continuityAnchors: anchors,
-      diaryCausality: causality,
-      choiceConsequence: choice ? { choice: choice.description || choice.effect, impactType: '行动与风险', consequence: choice.effect || '用户选择必须改变主角今天的行动方式和代价。' } : null,
-      beats: [
-        { order: 1, purpose: '承接上一日', action: `回应并推进：${openingFact}`, stateChange: '上一日未完成状态获得明确推进。' },
-        { order: 2, purpose: '日记产生因果', action: causality[0].worldAction, stateChange: causality[0].storyConsequence },
-        { order: 3, purpose: '留下连续钩子', action: '在不否定既有事实的前提下推进当前目标。', stateChange: '形成可由下一日继续承接的新状态。' },
-      ],
-      entityChanges: [], foreshadowActions: [],
-      endingTarget: { state: '当前目标得到推进，并留下与既有线索一致的下一步行动。', nextHook: '下一日必须承接本日形成的新状态。' },
+      choiceConsequence, entityChanges: [], foreshadowActions: [],
+      endingContract: { resultingState: '当前目标得到推进，并留下与既有线索一致的新状态。', nextAction: '林墨继续追查今天形成的关键线索。', blockingRisk: choice ? '主动追踪已经增加暴露或人情债风险。' : '当前线索仍存在未知阻碍。' },
       forbiddenChanges,
     }
     return StoryPlanValidator.normalize(plan)
+  }
+
+  _fallbackDiaryScene(event, index) {
+    const source = String(event || '').trim()
+    if (/调班|代班/.test(source)) return { action: `同事明确替林墨调班或代班，林墨因此获得调查时间。`, consequence: '林墨获得调查窗口，并因同事的帮助欠下明确人情。' }
+    if (/报告|会议/.test(source)) return { action: `林墨完成并提交与“${source}”对应的报告。`, consequence: '报告结果为林墨带来许可、情报或关系变化，并影响下一步调查。' }
+    return { action: `林墨实际处理“${source}”，并把结果用于当前调查。`, consequence: `“${source}”改变林墨的时间、资源或关系，使下一步调查路径发生具体变化。` }
   }
 
   _buildPrompt(context) {

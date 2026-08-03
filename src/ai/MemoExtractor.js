@@ -12,6 +12,7 @@
 import { EntityRepository } from '../db/repositories/EntityRepository.js'
 import { ForeshadowingRepository } from '../db/repositories/ForeshadowingRepository.js'
 import { DayHandoffRepository } from '../db/repositories/DayHandoffRepository.js'
+import HandoffCleaner from './HandoffCleaner.js'
 
 const SYSTEM_PROMPT = `你是一个故事分析助手。请从给定的故事段落中提取以下信息，以 JSON 格式输出：
 
@@ -40,11 +41,12 @@ const SYSTEM_PROMPT = `你是一个故事分析助手。请从给定的故事段
 如果某项为空，输出空数组。只输出 JSON，不要其他文字。`
 
 export class MemoExtractor {
-  constructor({ entityRepo = EntityRepository, foreshadowRepo = ForeshadowingRepository, handoffRepo = DayHandoffRepository } = {}) {
+  constructor({ entityRepo = EntityRepository, foreshadowRepo = ForeshadowingRepository, handoffRepo = DayHandoffRepository, handoffCleaner = new HandoffCleaner() } = {}) {
     this.maxContentChars = 3600
     this.entityRepo = entityRepo
     this.foreshadowRepo = foreshadowRepo
     this.handoffRepo = handoffRepo
+    this.handoffCleaner = handoffCleaner
   }
 
   /**
@@ -244,33 +246,27 @@ export class MemoExtractor {
 
   async _persistHandoff(rawHandoff, content, storyDay, context, unresolvedList, source) {
     if (!this.handoffRepo || !context.segmentId) return null
-    const handoff = this._normalizeHandoff(rawHandoff, content, unresolvedList, context)
+    const cleaned = this._normalizeHandoff(rawHandoff, content, unresolvedList, context)
+    const handoff = cleaned.handoff
     return this.handoffRepo.upsert({
       dayNumber: storyDay,
       segmentId: context.segmentId,
       ...handoff,
       source,
       sourceContentHash: this._contentHash(content),
+      qualityStatus: cleaned.qualityStatus,
+      qualityIssues: cleaned.qualityIssues,
+      factRecords: handoff.factRecords,
+      fallbackReason: cleaned.fallbackReason,
     })
   }
 
   _normalizeHandoff(raw, content, unresolvedList, context) {
-    const fallback = this._fallbackHandoff(content, unresolvedList, context)
-    const value = raw && typeof raw === 'object' ? raw : {}
-    const array = item => Array.isArray(item) ? item : []
-    const string = item => String(item || '').trim()
-    return {
-      schemaVersion: 1,
-      endingScene: value.endingScene && typeof value.endingScene === 'object' ? value.endingScene : fallback.endingScene,
-      characterStates: array(value.characterStates),
-      hardFacts: array(value.hardFacts).map(string).filter(Boolean).slice(0, 10).length ? array(value.hardFacts).map(string).filter(Boolean).slice(0, 10) : fallback.hardFacts,
-      activeGoal: string(value.activeGoal) || fallback.activeGoal,
-      unfinishedAction: string(value.unfinishedAction) || fallback.unfinishedAction,
-      immediateNextAction: string(value.immediateNextAction) || fallback.immediateNextAction,
-      unresolvedThreads: array(value.unresolvedThreads).length ? array(value.unresolvedThreads).slice(0, 8) : fallback.unresolvedThreads,
-      prohibitedChanges: array(value.prohibitedChanges).map(string).filter(Boolean).length ? array(value.prohibitedChanges).map(string).filter(Boolean).slice(0, 10) : fallback.prohibitedChanges,
+    return this.handoffCleaner.clean(raw, {
+      content,
+      unresolvedThreads: unresolvedList,
       choiceContext: context.choiceContext || null,
-    }
+    })
   }
 
   _fallbackHandoff(content, unresolvedList, context) {

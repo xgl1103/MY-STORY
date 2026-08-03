@@ -14,6 +14,8 @@ const normalize = row => row ? {
   unresolvedThreads: parse(row.unresolved_threads_json, []),
   prohibitedChanges: parse(row.prohibited_changes_json, []),
   choiceContext: parse(row.choice_context_json, null),
+  factRecords: parse(row.fact_records_json, []),
+  qualityIssues: parse(row.quality_issues_json, []),
 } : null
 
 export const DayHandoffRepository = {
@@ -34,8 +36,9 @@ export const DayHandoffRepository = {
         day_number, segment_id, schema_version, ending_scene_json, character_state_json,
         hard_facts_json, active_goal, unfinished_action, immediate_next_action,
         unresolved_threads_json, prohibited_changes_json, choice_context_json,
-        source, source_content_hash
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        source, source_content_hash, quality_status, quality_issues_json,
+        fact_records_json, fallback_reason
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(day_number) DO UPDATE SET
         segment_id = excluded.segment_id, schema_version = excluded.schema_version,
         ending_scene_json = excluded.ending_scene_json,
@@ -46,14 +49,19 @@ export const DayHandoffRepository = {
         unresolved_threads_json = excluded.unresolved_threads_json,
         prohibited_changes_json = excluded.prohibited_changes_json,
         choice_context_json = excluded.choice_context_json, source = excluded.source,
-        source_content_hash = excluded.source_content_hash, updated_at = CURRENT_TIMESTAMP`,
+        source_content_hash = excluded.source_content_hash,
+        quality_status = excluded.quality_status,
+        quality_issues_json = excluded.quality_issues_json,
+        fact_records_json = excluded.fact_records_json,
+        fallback_reason = excluded.fallback_reason, updated_at = CURRENT_TIMESTAMP`,
       [
         data.dayNumber, data.segmentId, data.schemaVersion || 1,
         encode(data.endingScene), encode(data.characterStates || []), encode(data.hardFacts || []),
         data.activeGoal || null, data.unfinishedAction || null, data.immediateNextAction || null,
         encode(data.unresolvedThreads || []), encode(data.prohibitedChanges || []),
         data.choiceContext == null ? null : encode(data.choiceContext),
-        data.source || 'ai', data.sourceContentHash || '',
+        data.source || 'ai', data.sourceContentHash || '', data.qualityStatus || 'valid',
+        encode(data.qualityIssues || []), encode(data.factRecords || []), data.fallbackReason || null,
       ]
     )
     await markWrite(true)

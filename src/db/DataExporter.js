@@ -12,7 +12,7 @@ export async function exportData() {
   }
 
   return {
-    version: '1.1',
+    version: '1.2',
     export_date: new Date().toISOString(),
     user_settings,
     diary_entries: queryAll('SELECT * FROM diary_entries ORDER BY day_number'),
@@ -122,8 +122,8 @@ export async function importData(data) {
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, [row.id, row.planted_day, row.planted_chapter, row.description, row.priority, row.status, row.resolved_day, row.resolved_chapter, row.resolution, row.created_at])
     }
     for (const row of data.day_handoff || []) {
-      execute(`INSERT INTO day_handoff (id, day_number, segment_id, schema_version, ending_scene_json, character_state_json, hard_facts_json, active_goal, unfinished_action, immediate_next_action, unresolved_threads_json, prohibited_changes_json, choice_context_json, source, source_content_hash, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, [row.id, row.day_number, row.segment_id, row.schema_version, row.ending_scene_json, row.character_state_json, row.hard_facts_json, row.active_goal, row.unfinished_action, row.immediate_next_action, row.unresolved_threads_json, row.prohibited_changes_json, row.choice_context_json, row.source, row.source_content_hash, row.created_at, row.updated_at])
+      execute(`INSERT INTO day_handoff (id, day_number, segment_id, schema_version, ending_scene_json, character_state_json, hard_facts_json, active_goal, unfinished_action, immediate_next_action, unresolved_threads_json, prohibited_changes_json, choice_context_json, source, source_content_hash, quality_status, quality_issues_json, fact_records_json, fallback_reason, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, [row.id, row.day_number, row.segment_id, row.schema_version, row.ending_scene_json, row.character_state_json, row.hard_facts_json, row.active_goal, row.unfinished_action, row.immediate_next_action, row.unresolved_threads_json, row.prohibited_changes_json, row.choice_context_json, row.source, row.source_content_hash, row.quality_status || 'valid', row.quality_issues_json || '[]', row.fact_records_json || '[]', row.fallback_reason ?? null, row.created_at, row.updated_at])
     }
     for (const row of data.story_plan || []) {
       execute(`INSERT INTO story_plan (id, day_number, segment_id, previous_handoff_day, schema_version, plan_json, status, source, input_fingerprint, validation_errors_json, created_at, updated_at)
