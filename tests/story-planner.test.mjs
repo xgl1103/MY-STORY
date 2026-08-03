@@ -43,16 +43,19 @@ const validPlan = {
 }
 
 assert.equal(StoryPlanValidator.validate(validPlan, context).valid, true, '合法计划应通过本地校验')
+assert.equal(StoryPlanValidator.validate({ ...validPlan, openingContract: { ...validPlan.openingContract, requiredFirstAction: 'The colleague physically takes Lin’s newsroom shift, freeing the afternoon for the archive search.' } }, context).valid, false, '开场动作必须与第一场景的动作合同保持一致')
 assert.equal(StoryPlanValidator.validate({ ...validPlan, scenes: validPlan.scenes.map(scene => ({ ...scene, diaryEventIds: [] })) }, context).valid, false, '遗漏日记场景绑定必须被拒绝')
 assert.equal(StoryPlanValidator.validate({ ...validPlan, choiceConsequence: null }, context).valid, false, '遗漏命运后果必须被拒绝')
 
 const planner = new StoryPlanner()
+let plannerSystemPrompt = ''
 const planned = await planner.plan(context, {
-  adapter: { async chat() { return { success: true, content: JSON.stringify(validPlan) } } },
+  adapter: { async chat(args) { plannerSystemPrompt = args.systemPrompt; assert.equal(args.jsonMode, true); assert.equal(args.temperature, 0); assert.equal(args.maxTokens, 2400); return { success: true, content: JSON.stringify(validPlan) } } },
   apiKey: 'test', baseUrl: null,
 })
 assert.equal(planned.source, 'ai')
 assert.equal(planned.plan.openingContract.requiredFirstAction, '林墨将铜制怀表嵌入暗门凹槽并启动机关')
+assert.ok(plannerSystemPrompt.includes('scenes[0].requiredActions'), 'Planner prompt must require an exact opening-action handoff')
 
 let retryCalls = 0
 const retried = await planner.plan(context, {

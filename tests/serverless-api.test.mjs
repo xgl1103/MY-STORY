@@ -33,11 +33,19 @@ try {
   assert.equal(result.statusCode, 200);
   assert.equal(result.payload.configured, true);
 
+  let upstreamCalls = 0;
   globalThis.fetch = async (url, options) => {
+    upstreamCalls += 1;
     assert.equal(url, 'https://api.deepseek.com/v1/chat/completions');
     const payload = JSON.parse(options.body);
     assert.equal(payload.model, 'deepseek-chat');
-    assert.equal(payload.max_tokens, 3200, 'token count should be capped');
+    if (upstreamCalls === 1) {
+      assert.equal(payload.max_tokens, 3200, 'token count should be capped');
+      assert.equal(payload.response_format, undefined, 'normal chat must not force JSON mode');
+    } else {
+      assert.equal(payload.max_tokens, 200, 'JSON mode must preserve a valid requested budget');
+      assert.deepEqual(payload.response_format, { type: 'json_object' }, 'JSON chat must request a JSON object');
+    }
     assert.equal(options.headers.Authorization, 'Bearer unit-test-key');
     return new Response(JSON.stringify({
       choices: [{ message: { content: '  serverless response  ' } }],
@@ -51,6 +59,11 @@ try {
   assert.equal(result.payload.content, 'serverless response');
   assert.equal(result.payload.tokensUsed, 42);
   assert.equal(result.headers['Cache-Control'], 'no-store');
+
+  result = await invoke({
+    action: 'chat', systemPrompt: 'system', userPrompt: 'user', maxTokens: 200, jsonMode: true,
+  });
+  assert.equal(result.statusCode, 200);
 
   result = await invoke({ action: 'chat', systemPrompt: '', userPrompt: 'user' });
   assert.equal(result.statusCode, 400);

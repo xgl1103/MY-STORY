@@ -8,6 +8,9 @@ const SYSTEM_PROMPT = `你是互动连载小说的编剧规划器。你的职责
 3. 已选命运必须造成可观察的风险、资源、关系、信息、时间成本或目标变化。
 4. 不得无解释改变实体、人物关系、物品、目标或已确认事实。
 5. 只输出 JSON，不写小说正文、不加 Markdown。
+6. scenes 必须恰好输出 3 至 6 个完整场景；每个场景都必须有 sceneId、purpose、time、location、至少一个 requiredActions 和至少一个 stateChanges，不能留空或使用“待定”。
+7. openingContract.requiredFirstAction 必须是一个具体动作；并且 scenes[0].requiredActions 必须逐字包含同一句动作（直接复制，不要改写）。
+8. endingContract.nextAction 也必须是一个具体、可执行的动作，不能只写“继续推进”“等待后续”之类的概述。
 
 输出 schema：
 {
@@ -52,8 +55,11 @@ export class StoryPlanner {
       baseUrl: aiContext.baseUrl,
       systemPrompt: SYSTEM_PROMPT,
       userPrompt: this._buildPrompt(context) + repairInstruction,
-      temperature: 0.2,
-      maxTokens: 1400,
+      // The V2 plan is intentionally detailed.  JSON mode removes prose/code
+      // fences, and the larger budget prevents truncated scene contracts.
+      temperature: 0,
+      maxTokens: 2400,
+      jsonMode: true,
     })
     if (!response?.success) throw new Error(response?.error || '规划调用失败')
     return response.content

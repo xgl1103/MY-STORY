@@ -2,7 +2,9 @@ const MAX_REQUEST_CHARS = 60000;
 const DEFAULT_MAX_TOKENS = 2600;
 const MAX_TOKENS = 3200;
 const RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000;
-const RATE_LIMIT_MAX_REQUESTS = 12;
+// A normal story day can use 6–7 guarded AI calls.  Keep abuse protection while
+// allowing an evaluator to complete several daily flows in one sitting.
+const RATE_LIMIT_MAX_REQUESTS = 30;
 const requestBuckets = new Map();
 
 function getClientIp(req) {
@@ -67,6 +69,7 @@ export default async function handler(req, res) {
   const temperature = Number.isFinite(Number(body.temperature))
     ? Math.max(0, Math.min(2, Number(body.temperature)))
     : 0.8;
+  const jsonMode = body.jsonMode === true;
 
   try {
     const upstream = await fetch('https://api.deepseek.com/v1/chat/completions', {
@@ -84,6 +87,7 @@ export default async function handler(req, res) {
         temperature,
         max_tokens: maxTokens,
         stream: false,
+        ...(jsonMode ? { response_format: { type: 'json_object' } } : {}),
       }),
     });
 

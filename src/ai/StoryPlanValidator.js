@@ -2,7 +2,12 @@
 // 绑定到可执行场景，避免“字段存在但正文没有发生”的松散计划。
 const asArray = value => Array.isArray(value) ? value : []
 const text = value => String(value || '').trim()
-const actionable = value => text(value).length >= 8 && /(?:将|把|嵌入|启动|打开|进入|离开|收起|前往|调查|确认|完成|提交|代班|调班|继续|联系|追查|准备|寻找|开始|处理)/.test(text(value))
+// Plans may be generated in the user's language.  A verb dictionary is brittle
+// across languages and verb forms, so accept a sufficiently specific action and
+// reject only known non-actions. Downstream story-contract review still verifies
+// that the action actually occurs in the prose.
+const nonAction = value => /^(?:待定|暂无|无|未知|继续推进|推进剧情|保持现状|等待后续|to be determined|tbd|unknown|continue the story|advance the plot|wait for more)$/i.test(text(value))
+const actionable = value => text(value).length >= 8 && !nonAction(value)
 const abstractImpact = value => /^(?:承担更高风险|推进剧情|改变关系或风险|产生影响|继续调查|自然推进)$/u.test(text(value))
 
 export class StoryPlanValidator {

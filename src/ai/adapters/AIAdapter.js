@@ -86,9 +86,9 @@ class BaseAdapter {
    * 对话补全（核心方法）。子类共享实现，差异点通过覆盖钩子方法实现。
    */
   async chat({ apiKey, baseUrl, systemPrompt, userPrompt,
-               temperature = 0.8, maxTokens = 2000 }) {
+               temperature = 0.8, maxTokens = 2000, jsonMode = false }) {
     if (baseUrl === '/api/ai') {
-      return this._chatViaServerless({ systemPrompt, userPrompt, temperature, maxTokens });
+      return this._chatViaServerless({ systemPrompt, userPrompt, temperature, maxTokens, jsonMode });
     }
     const url = `${baseUrl || this.defaultBaseUrl}/v1/chat/completions`;
 
@@ -102,6 +102,7 @@ class BaseAdapter {
       max_tokens: maxTokens,
       stream: false,
     };
+    if (jsonMode) body.response_format = { type: 'json_object' };
 
     try {
       const response = await this._fetchWithTimeout(url, {
@@ -187,7 +188,7 @@ class BaseAdapter {
     }
   }
 
-  async _chatViaServerless({ systemPrompt, userPrompt, temperature, maxTokens }) {
+  async _chatViaServerless({ systemPrompt, userPrompt, temperature, maxTokens, jsonMode = false }) {
     try {
       const response = await this._fetchWithTimeout('/api/ai', {
         method: 'POST',
@@ -198,6 +199,7 @@ class BaseAdapter {
           userPrompt,
           temperature: this._adjustTemperature(temperature),
           maxTokens,
+          jsonMode: Boolean(jsonMode),
         }),
       }, this.timeout);
       if (!response.ok) return this._handleHttpError(response);
