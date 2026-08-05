@@ -32,6 +32,20 @@ test('preview exposes settings and uses the shared reading viewport', async () =
   assert.match(source, /saveReadingMode/)
 })
 
+test('preview wires outside settings clicks through the shared controller without paging', async () => {
+  const source = await read('../src/views/Preview.vue')
+  assert.match(source, /import \{ createOutsidePanelController \} from '@\/features\/reader\/outsidePanelController'/)
+  assert.match(source, /ref="settingsTrigger"/)
+  assert.match(source, /ref="settingsPanel"/)
+  assert.match(source, /const settingsTrigger = ref\(null\)/)
+  assert.match(source, /const settingsPanel = ref\(null\)/)
+  assert.match(source, /const suppressSettingsPageTurn = ref\(false\)/)
+  assert.match(source, /createOutsidePanelController\(\{[\s\S]*eventTarget: document[\s\S]*isOpen: \(\) => showReaderSettings\.value[\s\S]*close: \(\) => \{ showReaderSettings\.value = false \}[\s\S]*setSuppressed: value => \{ suppressSettingsPageTurn\.value = value \}[\s\S]*\}\)/)
+  assert.match(source, /settingsPanelController\.mount\(\)/)
+  assert.match(source, /settingsPanelController\.unmount\(\)/)
+  assert.match(source, /:disabled="showReaderSettings \|\| suppressSettingsPageTurn"/)
+})
+
 test('preview repaginates for every rendered detail and styles its settings transition', async () => {
   const source = await read('../src/views/Preview.vue')
   assert.match(source, /JSON\.stringify\(mappingList\.value\)/)
@@ -50,6 +64,20 @@ test('chapter reader connects paging to settings, progress and chapter boundarie
   assert.match(source, /@boundary-next="goNext"/)
   assert.match(source, /@progress-change="readProgress = \$event"/)
   assert.match(source, /saveReadingMode/)
+})
+
+test('chapter reader wires outside settings clicks through the shared controller without paging', async () => {
+  const source = await read('../src/views/ChapterReader.vue')
+  assert.match(source, /import \{ createOutsidePanelController \} from '@\/features\/reader\/outsidePanelController'/)
+  assert.match(source, /ref="settingsTrigger"/)
+  assert.match(source, /ref="settingsPanel"/)
+  assert.match(source, /const settingsTrigger = ref\(null\)/)
+  assert.match(source, /const settingsPanel = ref\(null\)/)
+  assert.match(source, /const suppressSettingsPageTurn = ref\(false\)/)
+  assert.match(source, /createOutsidePanelController\(\{[\s\S]*eventTarget: document[\s\S]*isOpen: \(\) => showSettings\.value[\s\S]*close: \(\) => \{ showSettings\.value = false \}[\s\S]*setSuppressed: value => \{ suppressSettingsPageTurn\.value = value \}[\s\S]*\}\)/)
+  assert.match(source, /settingsPanelController\.mount\(\)/)
+  assert.match(source, /settingsPanelController\.unmount\(\)/)
+  assert.match(source, /:disabled="showSettings \|\| showToc \|\| suppressSettingsPageTurn"/)
 })
 
 test('chapter reader repaginates from every dynamically rendered layout input', async () => {

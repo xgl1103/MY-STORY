@@ -11,6 +11,7 @@
         class="btn-reader-settings"
         aria-label="阅读设置"
         :aria-expanded="showReaderSettings"
+        ref="settingsTrigger"
         @click="showReaderSettings = !showReaderSettings"
       >
         <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-2.82 1.18V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 3.17 14H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 10 3.17V3a2 2 0 0 1 4 0v.09A1.65 1.65 0 0 0 15 4.6a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 20.83 10H21a2 2 0 0 1 0 4h-.09A1.65 1.65 0 0 0 19.4 15z"/></svg>
@@ -41,7 +42,7 @@
         :mode="effectiveReadingMode"
         :content-key="segmentId || routeDay || ''"
         :repaginate-key="previewLayoutKey"
-        :disabled="showReaderSettings"
+        :disabled="showReaderSettings || suppressSettingsPageTurn"
       >
         <!-- 故事正文 / 编辑器 -->
         <article v-if="!editing" class="story-text">{{ result.content }}</article>
@@ -88,7 +89,7 @@
       </ReadingViewport>
 
       <transition name="slide-up">
-        <div v-if="showReaderSettings" class="preview-settings-panel" data-no-page-turn>
+        <div v-if="showReaderSettings" ref="settingsPanel" class="preview-settings-panel" data-no-page-turn>
           <div class="setting-row">
             <span class="setting-label">阅读方式</span>
             <ReadingModeToggle v-model="readingMode" />
@@ -137,6 +138,7 @@ import LoadingSpinner from '@/components/LoadingSpinner.vue'
 import ErrorToast from '@/components/ErrorToast.vue'
 import ReadingViewport from '@/components/ReadingViewport.vue'
 import ReadingModeToggle from '@/components/ReadingModeToggle.vue'
+import { createOutsidePanelController } from '@/features/reader/outsidePanelController'
 import {
   READING_MODES,
   loadReadingMode,
@@ -167,6 +169,17 @@ const revisionCount = ref(0)
 const submitting = ref(false) // 定稿/保存进行中
 const readingMode = ref(loadReadingMode())
 const showReaderSettings = ref(false)
+const settingsTrigger = ref(null)
+const settingsPanel = ref(null)
+const suppressSettingsPageTurn = ref(false)
+const settingsPanelController = createOutsidePanelController({
+  eventTarget: document,
+  isOpen: () => showReaderSettings.value,
+  getTrigger: () => settingsTrigger.value,
+  getPanel: () => settingsPanel.value,
+  close: () => { showReaderSettings.value = false },
+  setSuppressed: value => { suppressSettingsPageTurn.value = value }
+})
 
 // 路由参数缓存（供 onRetry 重新调用 doGenerate）
 const routeDay = ref(null)
@@ -246,6 +259,7 @@ watch(readingMode, value => saveReadingMode(value))
 
 // ===== 生命周期 =====
 onMounted(async () => {
+  settingsPanelController.mount()
   const day = Number(route.query.day)
   // 引擎未初始化：直接展示错误
   if (engineInitError) {
@@ -288,6 +302,7 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
+  settingsPanelController.unmount()
   stopTips()
 })
 

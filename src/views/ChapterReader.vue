@@ -12,7 +12,7 @@
       <button class="tool-btn" @click="showToc = !showToc">
         <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
       </button>
-      <button class="tool-btn" @click="showSettings = !showSettings">
+      <button ref="settingsTrigger" class="tool-btn" @click="showSettings = !showSettings">
         <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
       </button>
       <button class="tool-btn" :class="{ active: nightMode }" @click="toggleNight">
@@ -33,7 +33,7 @@
       :mode="readingMode"
       :content-key="chapter.id"
       :repaginate-key="readerLayoutKey"
-      :disabled="showSettings || showToc"
+      :disabled="showSettings || showToc || suppressSettingsPageTurn"
       @progress-change="readProgress = $event"
       @boundary-prev="goPrev"
       @boundary-next="goNext"
@@ -112,7 +112,7 @@
 
     <!-- 设置面板 -->
     <transition name="slide-up">
-      <div v-if="showSettings" class="settings-panel">
+      <div v-if="showSettings" ref="settingsPanel" class="settings-panel">
         <div class="setting-row" data-no-page-turn>
           <span class="setting-label setting-label-wide">阅读方式</span>
           <ReadingModeToggle v-model="readingMode" />
@@ -175,6 +175,7 @@ import LoadingSpinner from '@/components/LoadingSpinner.vue'
 import ReadingViewport from '@/components/ReadingViewport.vue'
 import ReadingModeToggle from '@/components/ReadingModeToggle.vue'
 import { loadReadingMode, saveReadingMode } from '@/features/reader/readingMode'
+import { createOutsidePanelController } from '@/features/reader/outsidePanelController'
 
 const router = useRouter()
 const route = useRoute()
@@ -198,6 +199,17 @@ const readingMode = ref(loadReadingMode())
 const pendingChoice = ref(null)
 const selectedChoice = ref(null)
 const selectingChoice = ref(false)
+const settingsTrigger = ref(null)
+const settingsPanel = ref(null)
+const suppressSettingsPageTurn = ref(false)
+const settingsPanelController = createOutsidePanelController({
+  eventTarget: document,
+  isOpen: () => showSettings.value,
+  getTrigger: () => settingsTrigger.value,
+  getPanel: () => settingsPanel.value,
+  close: () => { showSettings.value = false },
+  setSuppressed: value => { suppressSettingsPageTurn.value = value }
+})
 
 // 渐进展示定时器：每 10 秒刷新可见评论
 let commentTimer = null
@@ -408,6 +420,7 @@ function jumpChapter(ch) {
 }
 
 onMounted(() => {
+  settingsPanelController.mount()
   // 恢复阅读设置
   try {
     const night = localStorage.getItem('reader_night')
@@ -421,6 +434,7 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  settingsPanelController.unmount()
   if (commentTimer) { clearInterval(commentTimer); commentTimer = null }
 })
 
