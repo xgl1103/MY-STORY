@@ -199,6 +199,8 @@ const chapters = ref([])
 const comments = ref([])
 const pendingCommentLikeIds = ref(new Set())
 const commentLikeAnimations = ref({})
+const COMMENT_LIKE_ANIMATION_DURATION = 480
+const commentLikeAnimationTimers = new Map()
 const totalCommentCount = ref(0)
 const heatLevel = ref(1)
 const commentRefreshing = ref(false)
@@ -430,8 +432,24 @@ function setCommentLikePending(commentId, pending) {
 }
 
 function clearCommentLikeAnimation(commentId) {
+  const timer = commentLikeAnimationTimers.get(commentId)
+  if (timer) clearTimeout(timer)
+  commentLikeAnimationTimers.delete(commentId)
   const { [commentId]: _animation, ...remainingAnimations } = commentLikeAnimations.value
   commentLikeAnimations.value = remainingAnimations
+}
+
+function setCommentLikeAnimation(commentId, animation) {
+  const existingTimer = commentLikeAnimationTimers.get(commentId)
+  if (existingTimer) clearTimeout(existingTimer)
+
+  commentLikeAnimations.value = {
+    ...commentLikeAnimations.value,
+    [commentId]: animation
+  }
+
+  const timer = setTimeout(() => clearCommentLikeAnimation(commentId), COMMENT_LIKE_ANIMATION_DURATION)
+  commentLikeAnimationTimers.set(commentId, timer)
 }
 
 async function toggleCommentLike(comment) {
@@ -447,10 +465,7 @@ async function toggleCommentLike(comment) {
     likes: Math.max(0, previousLikes + (nextLiked ? 1 : -1)),
     is_liked: nextLiked ? 1 : 0
   })
-  commentLikeAnimations.value = {
-    ...commentLikeAnimations.value,
-    [commentId]: nextLiked ? 'liking' : 'unliking'
-  }
+  setCommentLikeAnimation(commentId, nextLiked ? 'liking' : 'unliking')
 
   try {
     const savedComment = await CommentRepository.setLiked(commentId, Boolean(nextLiked))
@@ -506,6 +521,8 @@ onMounted(() => {
 onBeforeUnmount(() => {
   settingsPanelController.unmount()
   if (commentTimer) { clearInterval(commentTimer); commentTimer = null }
+  for (const timer of commentLikeAnimationTimers.values()) clearTimeout(timer)
+  commentLikeAnimationTimers.clear()
 })
 
 watch(() => route.params.chapterId, loadChapter)

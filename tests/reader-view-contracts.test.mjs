@@ -132,7 +132,7 @@ test('chapter reader persists optimistic comment likes with a pending lock and r
   assert.match(source, /const nextPending = new Set\(pendingCommentLikeIds\.value\)/)
   assert.match(source, /pendingCommentLikeIds\.value = nextPending/)
   assert.match(source, /comments\.value = comments\.value\.map\(/)
-  assert.match(source, /commentLikeAnimations\.value = \{[\s\S]*\[commentId\]: nextLiked \? 'liking' : 'unliking'/)
+  assert.match(source, /setCommentLikeAnimation\(commentId, nextLiked \? 'liking' : 'unliking'\)/)
   assert.match(source, /await CommentRepository\.setLiked\(commentId, Boolean\(nextLiked\)\)/)
   assert.match(source, /if \(!savedComment\) throw new Error\(/)
   assert.match(source, /console\.warn\('\[Reader\] 点赞保存失败:'/)
@@ -150,4 +150,15 @@ test('chapter reader centers narrower comment cards and supplies reversible like
   assert.match(source, /@keyframes comment-heart-like/)
   assert.match(source, /@keyframes comment-heart-unlike/)
   assert.match(source, /@media \(prefers-reduced-motion: reduce\)/)
+})
+
+test('chapter reader clears each comment-like animation with an independent fallback timer', async () => {
+  const source = await read('../src/views/ChapterReader.vue')
+
+  assert.match(source, /const COMMENT_LIKE_ANIMATION_DURATION = 480/)
+  assert.match(source, /const commentLikeAnimationTimers = new Map\(\)/)
+  assert.match(source, /function setCommentLikeAnimation\(commentId, animation\) \{[\s\S]*const existingTimer = commentLikeAnimationTimers\.get\(commentId\)[\s\S]*clearTimeout\(existingTimer\)[\s\S]*const timer = setTimeout\(\(\) => clearCommentLikeAnimation\(commentId\), COMMENT_LIKE_ANIMATION_DURATION\)[\s\S]*commentLikeAnimationTimers\.set\(commentId, timer\)/)
+  assert.match(source, /function clearCommentLikeAnimation\(commentId\) \{[\s\S]*const timer = commentLikeAnimationTimers\.get\(commentId\)[\s\S]*clearTimeout\(timer\)[\s\S]*commentLikeAnimationTimers\.delete\(commentId\)[\s\S]*\[commentId\]: _animation[\s\S]*commentLikeAnimations\.value = remainingAnimations/)
+  assert.match(source, /setCommentLikeAnimation\(commentId, nextLiked \? 'liking' : 'unliking'\)/)
+  assert.match(source, /onBeforeUnmount\(\(\) => \{[\s\S]*for \(const timer of commentLikeAnimationTimers\.values\(\)\) clearTimeout\(timer\)[\s\S]*commentLikeAnimationTimers\.clear\(\)/)
 })
