@@ -4,9 +4,11 @@ import { createOutsidePanelController } from '../src/features/reader/outsidePane
 
 function createEventTarget() {
   const listeners = new Map()
+  const addCalls = new Map()
 
   return {
     addEventListener(type, listener, options) {
+      addCalls.set(type, (addCalls.get(type) ?? 0) + 1)
       listeners.set(type, { listener, options })
     },
     removeEventListener(type, listener, options) {
@@ -21,6 +23,9 @@ function createEventTarget() {
     },
     count() {
       return listeners.size
+    },
+    addCallCount(type) {
+      return addCalls.get(type) ?? 0
     }
   }
 }
@@ -57,8 +62,33 @@ test('mounts capture listeners once and ignores pointerdowns while closed or ins
   eventTarget.dispatch('pointerdown', panelChild)
 
   assert.equal(eventTarget.count(), 2)
+  assert.equal(eventTarget.addCallCount('pointerdown'), 1)
+  assert.equal(eventTarget.addCallCount('click'), 1)
   assert.equal(eventTarget.listener('pointerdown').options, true)
   assert.equal(eventTarget.listener('click').options, true)
+  assert.deepEqual(closed, [])
+  assert.deepEqual(suppressed, [])
+})
+
+test('does not close or suppress an open panel for pointerdowns inside its trigger or panel', () => {
+  const eventTarget = createEventTarget()
+  const triggerChild = {}
+  const panelChild = {}
+  const closed = []
+  const suppressed = []
+  const controller = createOutsidePanelController({
+    eventTarget,
+    isOpen: () => true,
+    getTrigger: () => createNode(triggerChild),
+    getPanel: () => createNode(panelChild),
+    close: () => closed.push('close'),
+    setSuppressed: value => suppressed.push(value)
+  })
+
+  controller.mount()
+  eventTarget.dispatch('pointerdown', triggerChild)
+  eventTarget.dispatch('pointerdown', panelChild)
+
   assert.deepEqual(closed, [])
   assert.deepEqual(suppressed, [])
 })
@@ -111,4 +141,28 @@ test('unmount removes listeners, clears suppression, and remains idempotent', ()
 
   assert.equal(eventTarget.count(), 0)
   assert.deepEqual(suppressed, [false])
+})
+
+test('does not let a release scheduled before unmount clear suppression after remount', () => {
+  const eventTarget = createEventTarget()
+  const scheduled = []
+  const suppressed = []
+  const controller = createOutsidePanelController({
+    eventTarget,
+    isOpen: () => true,
+    getTrigger: () => createNode(),
+    getPanel: () => createNode(),
+    close: () => {},
+    setSuppressed: value => suppressed.push(value),
+    scheduleRelease: callback => scheduled.push(callback)
+  })
+
+  controller.mount()
+  eventTarget.dispatch('pointerdown', {})
+  eventTarget.dispatch('click', {})
+  controller.unmount()
+  controller.mount()
+  scheduled[0]()
+
+  assert.deepEqual(suppressed, [true, false])
 })
