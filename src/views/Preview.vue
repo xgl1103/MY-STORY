@@ -231,17 +231,18 @@ const referenceList = computed(() => {
 const effectiveReadingMode = computed(() => (
   editing.value ? READING_MODES.SCROLL : readingMode.value
 ))
+// 重新生成是否已达上限（最多 3 次）
+const regenDisabled = computed(() => revisionCount.value >= 3)
+
 const previewLayoutKey = computed(() => [
   result.value?.content || '',
-  mappingList.value.length,
-  referenceList.value.length,
-  editing.value ? 'editing' : 'reading'
+  JSON.stringify(mappingList.value),
+  JSON.stringify(referenceList.value),
+  editing.value ? 'editing' : 'reading',
+  regenDisabled.value
 ].join('|'))
 
 watch(readingMode, value => saveReadingMode(value))
-
-// 重新生成是否已达上限（最多 3 次）
-const regenDisabled = computed(() => revisionCount.value >= 3)
 
 // ===== 生命周期 =====
 onMounted(async () => {
@@ -581,6 +582,17 @@ function back() {
   flex-shrink: 0;
   color: var(--color-text-secondary);
   font-size: var(--font-size-sm);
+}
+
+.slide-up-enter-active,
+.slide-up-leave-active {
+  transition: transform 0.3s ease, opacity 0.3s ease;
+}
+
+.slide-up-enter-from,
+.slide-up-leave-to {
+  transform: translateX(-50%) translateY(100%);
+  opacity: 0;
 }
 
 .story-text {

@@ -31,3 +31,12 @@ test('preview exposes settings and uses the shared reading viewport', async () =
   assert.match(source, /effectiveReadingMode/)
   assert.match(source, /saveReadingMode/)
 })
+
+test('preview repaginates for every rendered detail and styles its settings transition', async () => {
+  const source = await read('../src/views/Preview.vue')
+  assert.match(source, /JSON\.stringify\(mappingList\.value\)/)
+  assert.match(source, /JSON\.stringify\(referenceList\.value\)/)
+  assert.match(source, /regenDisabled\.value/)
+  assert.match(source, /\.slide-up-enter-active/)
+  assert.match(source, /\.slide-up-leave-active/)
+})
