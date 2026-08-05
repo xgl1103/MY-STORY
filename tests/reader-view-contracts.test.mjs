@@ -104,3 +104,50 @@ test('chapter reader repaginates from every dynamically rendered layout input', 
   assert.match(layoutKey, /lineHeight: lineHeight\.value/)
   assert.doesNotMatch(layoutKey, /content\?\.length/)
 })
+
+test('chapter reader exposes an accessible, non-paging comment-like button', async () => {
+  const source = await read('../src/views/ChapterReader.vue')
+
+  assert.match(source, /type="button"\s+class="comment-like-button"/)
+  assert.match(source, /:aria-pressed="Number\(block\.data\.is_liked\) === 1"/)
+  assert.match(source, /:aria-label="Number\(block\.data\.is_liked\) === 1 \? '取消点赞' : '点赞'"/)
+  assert.match(source, /data-no-page-turn/)
+  assert.match(source, /@click="toggleCommentLike\(block\.data\)"/)
+  assert.match(source, /@animationend="clearCommentLikeAnimation\(block\.data\.id\)"/)
+  assert.match(source, /comment-like-count/)
+  assert.match(source, /'is-liked': Number\(block\.data\.is_liked\) === 1/)
+  assert.match(source, /'is-liking': commentLikeAnimations\[block\.data\.id\] === 'liking'/)
+  assert.match(source, /'is-unliking': commentLikeAnimations\[block\.data\.id\] === 'unliking'/)
+  assert.match(source, /width="16" height="16"/)
+  assert.match(source, /stroke="currentColor"/)
+  assert.match(source, /:fill="Number\(block\.data\.is_liked\) === 1 \? 'currentColor' : 'none'"/)
+})
+
+test('chapter reader persists optimistic comment likes with a pending lock and rollback', async () => {
+  const source = await read('../src/views/ChapterReader.vue')
+
+  assert.match(source, /const pendingCommentLikeIds = ref\(new Set\(\)\)/)
+  assert.match(source, /const commentLikeAnimations = ref\(\{\}\)/)
+  assert.match(source, /if \(pendingCommentLikeIds\.value\.has\(commentId\)\) return/)
+  assert.match(source, /const nextPending = new Set\(pendingCommentLikeIds\.value\)/)
+  assert.match(source, /pendingCommentLikeIds\.value = nextPending/)
+  assert.match(source, /comments\.value = comments\.value\.map\(/)
+  assert.match(source, /commentLikeAnimations\.value = \{[\s\S]*\[commentId\]: nextLiked \? 'liking' : 'unliking'/)
+  assert.match(source, /await CommentRepository\.setLiked\(commentId, Boolean\(nextLiked\)\)/)
+  assert.match(source, /if \(!savedComment\) throw new Error\(/)
+  assert.match(source, /console\.warn\('\[Reader\] 点赞保存失败:'/)
+  assert.match(source, /clearCommentLikeAnimation\(commentId\)/)
+})
+
+test('chapter reader centers narrower comment cards and supplies reversible like motion', async () => {
+  const source = await read('../src/views/ChapterReader.vue')
+
+  assert.match(source, /\.comment-card\s*\{[\s\S]*width: min\(92%, 680px\);[\s\S]*box-sizing: border-box;[\s\S]*margin-left: auto;[\s\S]*margin-right: auto;/)
+  assert.match(source, /\.comment-like-button\s*\{[\s\S]*color: var\(--color-text-tertiary\)/)
+  assert.match(source, /\.comment-like-button\.is-liked\s*\{[\s\S]*color: #/)
+  assert.match(source, /\.comment-like-button:focus-visible/)
+  assert.match(source, /\.comment-like-button:disabled/)
+  assert.match(source, /@keyframes comment-heart-like/)
+  assert.match(source, /@keyframes comment-heart-unlike/)
+  assert.match(source, /@media \(prefers-reduced-motion: reduce\)/)
+})

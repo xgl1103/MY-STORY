@@ -49,10 +49,24 @@
               <div class="comment-body">
                 <div class="comment-header">
                   <span class="comment-name">{{ block.data.persona_name }}</span>
-                  <span class="comment-likes">
-                    <svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>
-                    {{ block.data.likes }}
-                  </span>
+                  <button
+                    type="button"
+                    class="comment-like-button"
+                    :class="{
+                      'is-liked': Number(block.data.is_liked) === 1,
+                      'is-liking': commentLikeAnimations[block.data.id] === 'liking',
+                      'is-unliking': commentLikeAnimations[block.data.id] === 'unliking'
+                    }"
+                    :aria-pressed="Number(block.data.is_liked) === 1"
+                    :aria-label="Number(block.data.is_liked) === 1 ? '取消点赞' : '点赞'"
+                    :disabled="pendingCommentLikeIds.has(block.data.id)"
+                    data-no-page-turn
+                    @click="toggleCommentLike(block.data)"
+                    @animationend="clearCommentLikeAnimation(block.data.id)"
+                  >
+                    <svg viewBox="0 0 24 24" width="16" height="16" :fill="Number(block.data.is_liked) === 1 ? 'currentColor' : 'none'" stroke="currentColor" stroke-width="2"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>
+                    <span class="comment-like-count">{{ block.data.likes }}</span>
+                  </button>
                 </div>
                 <p class="comment-text">{{ block.data.content }}</p>
               </div>
@@ -183,6 +197,8 @@ const route = useRoute()
 const chapter = ref(null)
 const chapters = ref([])
 const comments = ref([])
+const pendingCommentLikeIds = ref(new Set())
+const commentLikeAnimations = ref({})
 const totalCommentCount = ref(0)
 const heatLevel = ref(1)
 const commentRefreshing = ref(false)
@@ -400,6 +416,60 @@ function refreshVisibleComments() {
   } catch (e) { /* ignore */ }
 }
 
+function updateCommentLikeState(commentId, values) {
+  comments.value = comments.value.map(comment => (
+    comment.id === commentId ? { ...comment, ...values } : comment
+  ))
+}
+
+function setCommentLikePending(commentId, pending) {
+  const nextPending = new Set(pendingCommentLikeIds.value)
+  if (pending) nextPending.add(commentId)
+  else nextPending.delete(commentId)
+  pendingCommentLikeIds.value = nextPending
+}
+
+function clearCommentLikeAnimation(commentId) {
+  const { [commentId]: _animation, ...remainingAnimations } = commentLikeAnimations.value
+  commentLikeAnimations.value = remainingAnimations
+}
+
+async function toggleCommentLike(comment) {
+  const commentId = comment.id
+  if (pendingCommentLikeIds.value.has(commentId)) return
+
+  const previousLikes = Math.max(0, Number(comment.likes) || 0)
+  const previousIsLiked = Number(comment.is_liked) ? 1 : 0
+  const nextLiked = previousIsLiked === 0
+
+  setCommentLikePending(commentId, true)
+  updateCommentLikeState(commentId, {
+    likes: Math.max(0, previousLikes + (nextLiked ? 1 : -1)),
+    is_liked: nextLiked ? 1 : 0
+  })
+  commentLikeAnimations.value = {
+    ...commentLikeAnimations.value,
+    [commentId]: nextLiked ? 'liking' : 'unliking'
+  }
+
+  try {
+    const savedComment = await CommentRepository.setLiked(commentId, Boolean(nextLiked))
+    if (!savedComment) throw new Error('Comment was not found')
+    updateCommentLikeState(commentId, {
+      likes: savedComment.likes,
+      is_liked: savedComment.is_liked
+    })
+  } catch (e) {
+    updateCommentLikeState(commentId, {
+      likes: previousLikes,
+      is_liked: previousIsLiked
+    })
+    console.warn('[Reader] 点赞保存失败:', e)
+  } finally {
+    setCommentLikePending(commentId, false)
+  }
+}
+
 function goPrev() {
   if (hasPrev.value) {
     const prev = chapters.value[currentIndex.value - 1]
@@ -533,9 +603,13 @@ watch(readingMode, value => saveReadingMode(value))
 /* 读者评论卡片 */
 .comment-card {
   display: flex;
-  gap: var(--spacing-sm);
-  margin: var(--spacing-md) 0 var(--spacing-lg);
-  padding: var(--spacing-sm) var(--spacing-md);
+  gap: 6px;
+  width: min(92%, 680px);
+  box-sizing: border-box;
+  margin: var(--spacing-md) auto var(--spacing-lg);
+  margin-left: auto;
+  margin-right: auto;
+  padding: var(--spacing-sm) 12px;
   background: var(--color-surface);
   border-radius: var(--radius-md);
   border-left: 3px solid var(--color-primary);
@@ -580,12 +654,109 @@ watch(readingMode, value => saveReadingMode(value))
   color: var(--color-text);
 }
 
-.comment-likes {
-  display: flex;
+.comment-like-button {
+  position: relative;
+  display: inline-flex;
   align-items: center;
-  gap: 2px;
+  gap: 3px;
+  padding: 2px 3px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
   font-size: 11px;
   color: var(--color-text-tertiary);
+  cursor: pointer;
+}
+
+.comment-like-button.is-liked {
+  color: #d94c4c;
+}
+
+.comment-like-button:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+.comment-like-button:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.comment-like-button svg,
+.comment-like-count {
+  position: relative;
+  z-index: 1;
+}
+
+.comment-like-button.is-liking svg {
+  animation: comment-heart-like 480ms ease-out;
+}
+
+.comment-like-button.is-unliking svg {
+  animation: comment-heart-unlike 360ms ease-out;
+}
+
+.comment-like-button.is-liking::after {
+  content: '';
+  position: absolute;
+  left: 8px;
+  top: 8px;
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 -8px 0 -1px currentColor, 7px -4px 0 -1px currentColor, 7px 4px 0 -1px currentColor, 0 8px 0 -1px currentColor, -7px 4px 0 -1px currentColor, -7px -4px 0 -1px currentColor;
+  animation: comment-heart-burst 480ms ease-out;
+}
+
+.comment-like-button.is-liking .comment-like-count {
+  animation: comment-like-count-up 480ms ease-out;
+}
+
+.comment-like-button.is-unliking .comment-like-count {
+  animation: comment-like-count-down 360ms ease-out;
+}
+
+@keyframes comment-heart-like {
+  0% { transform: scale(1); }
+  45% { transform: scale(1.35); }
+  72% { transform: scale(0.92); }
+  100% { transform: scale(1); }
+}
+
+@keyframes comment-heart-unlike {
+  0% { transform: scale(1); }
+  48% { transform: scale(0.72); }
+  76% { transform: scale(1.08); }
+  100% { transform: scale(1); }
+}
+
+@keyframes comment-heart-burst {
+  0% { opacity: 0; transform: scale(0.4); }
+  35% { opacity: 0.8; }
+  100% { opacity: 0; transform: scale(1.35); }
+}
+
+@keyframes comment-like-count-up {
+  0% { transform: translateY(0); }
+  45% { transform: translateY(-3px); }
+  100% { transform: translateY(0); }
+}
+
+@keyframes comment-like-count-down {
+  0% { transform: translateY(0); }
+  45% { transform: translateY(3px); }
+  100% { transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .comment-like-button.is-liking svg,
+  .comment-like-button.is-unliking svg,
+  .comment-like-button.is-liking::after,
+  .comment-like-button.is-liking .comment-like-count,
+  .comment-like-button.is-unliking .comment-like-count {
+    animation: none;
+  }
 }
 
 .comment-text {
