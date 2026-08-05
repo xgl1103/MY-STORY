@@ -94,6 +94,14 @@ const migrations = {
     } catch (e) {
       if (!String(e.message).includes('duplicate column')) throw e
     }
+  },
+  // 版本 9：持久化本地用户对章节评论的点赞状态
+  9: async (db) => {
+    try {
+      db.run(`ALTER TABLE chapter_comments ADD COLUMN is_liked INTEGER NOT NULL DEFAULT 0`)
+    } catch (e) {
+      if (!String(e.message).includes('duplicate column')) throw e
+    }
   }
 }
 

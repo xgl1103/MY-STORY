@@ -20,6 +20,22 @@ export const CommentRepository = {
     )
   },
 
+  async setLiked(commentId, liked) {
+    const isLiked = Number(liked) ? 1 : 0
+    const updated = execute(
+      `UPDATE chapter_comments
+       SET likes = MAX(0, COALESCE(likes, 0) +
+         CASE WHEN COALESCE(is_liked, 0) = ? THEN 0 WHEN ? = 1 THEN 1 ELSE -1 END),
+           is_liked = ?
+       WHERE id = ?`,
+      [isLiked, isLiked, isLiked, commentId]
+    )
+    if (updated === 0) return null
+
+    await markWrite(true)
+    return queryOne('SELECT id, likes, is_liked FROM chapter_comments WHERE id = ?', [commentId])
+  },
+
   async create(data) {
     execute(
       `INSERT INTO chapter_comments (chapter_number, paragraph_index, persona, persona_name, avatar_color, content, likes, reveal_at)
