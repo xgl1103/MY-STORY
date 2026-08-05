@@ -113,6 +113,8 @@ function turnPage(direction) {
 function handleClick(event) {
   if (isOutsidePanelDismissClick(event)) return
   if (props.disabled || normalizedMode.value !== READING_MODES.PAGE || isInteractiveTarget(event.target)) return
+  const selection = globalThis.getSelection?.()
+  if (selection && !selection.isCollapsed) return
   const rect = viewport.value?.getBoundingClientRect()
   if (!rect) return
   const direction = pageTurnDirectionForClick({
