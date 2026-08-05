@@ -27,7 +27,17 @@
       <button class="retry-btn" @click="loadChapter">重试</button>
     </div>
 
-    <div v-else-if="chapter" class="reader-body" ref="readerBody" @scroll="updateProgress">
+    <ReadingViewport
+      v-else-if="chapter"
+      class="reader-body"
+      :mode="readingMode"
+      :content-key="chapter.id"
+      :repaginate-key="readerLayoutKey"
+      :disabled="showSettings || showToc"
+      @progress-change="readProgress = $event"
+      @boundary-prev="goPrev"
+      @boundary-next="goNext"
+    >
       <article class="story-text" :style="{ fontSize: fontSize + 'px', lineHeight: lineHeight }">
         <template v-if="contentBlocks.length > 0">
           <template v-for="(block, idx) in contentBlocks" :key="idx">
@@ -90,7 +100,7 @@
         <p>命运已被写下：{{ selectedChoice.description }}</p>
         <button class="nav-btn" @click="goWriteNextDay">记录下一天</button>
       </section>
-    </div>
+    </ReadingViewport>
 
     <!-- 底部进度条 -->
     <div v-if="chapter && !loading" class="progress-bar">
@@ -103,6 +113,10 @@
     <!-- 设置面板 -->
     <transition name="slide-up">
       <div v-if="showSettings" class="settings-panel">
+        <div class="setting-row" data-no-page-turn>
+          <span class="setting-label setting-label-wide">阅读方式</span>
+          <ReadingModeToggle v-model="readingMode" />
+        </div>
         <div class="setting-row">
           <span class="setting-label">字号</span>
           <button class="size-btn" @click="fontSize = Math.max(14, fontSize - 1)">A-</button>
@@ -149,7 +163,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { ChapterRepository } from '@/db/repositories/ChapterRepository'
 import { SegmentRepository } from '@/db/repositories/SegmentRepository'
@@ -158,6 +172,9 @@ import { UserRepository } from '@/db/repositories/UserRepository'
 import { getStoryEngine } from '@/core'
 import { triggerCommentGeneration, generateComments, assessHeatLevel, HEAT_LEVELS } from '@/utils/CommentGenerator'
 import LoadingSpinner from '@/components/LoadingSpinner.vue'
+import ReadingViewport from '@/components/ReadingViewport.vue'
+import ReadingModeToggle from '@/components/ReadingModeToggle.vue'
+import { loadReadingMode, saveReadingMode } from '@/features/reader/readingMode'
 
 const router = useRouter()
 const route = useRoute()
@@ -177,7 +194,7 @@ const fontSize = ref(16)
 const lineHeight = ref(2)
 const brightness = ref(100)
 const readProgress = ref(0)
-const readerBody = ref(null)
+const readingMode = ref(loadReadingMode())
 const pendingChoice = ref(null)
 const selectedChoice = ref(null)
 const selectingChoice = ref(false)
@@ -193,17 +210,6 @@ function goBack() {
 function toggleNight() {
   nightMode.value = !nightMode.value
   try { localStorage.setItem('reader_night', nightMode.value ? '1' : '0') } catch (e) { /* ignore */ }
-}
-
-function updateProgress() {
-  const el = readerBody.value
-  if (!el) return
-  const max = el.scrollHeight - el.clientHeight
-  if (max <= 0) {
-    readProgress.value = 100
-    return
-  }
-  readProgress.value = Math.min(100, (el.scrollTop / max) * 100)
 }
 
 // 将正文段落和评论混合成渲染块
@@ -236,6 +242,14 @@ const contentBlocks = computed(() => {
   }
   return blocks
 })
+
+const readerLayoutKey = computed(() => [
+  chapter.value?.id || '',
+  chapter.value?.content?.length || 0,
+  comments.value.length,
+  fontSize.value,
+  lineHeight.value
+].join('|'))
 
 const currentIndex = computed(() => {
   if (!chapter.value) return -1
@@ -322,10 +336,7 @@ async function loadChapter() {
     error.value = `加载失败：${(e && e.message) || '未知错误'}`
   } finally {
     loading.value = false
-    nextTick(() => {
-      if (readerBody.value) readerBody.value.scrollTop = 0
-      readProgress.value = 0
-    })
+    readProgress.value = 0
   }
 }
 
@@ -413,15 +424,18 @@ onBeforeUnmount(() => {
 watch(() => route.params.chapterId, loadChapter)
 watch(fontSize, (v) => { try { localStorage.setItem('reader_fontsize', v) } catch (e) {} })
 watch(lineHeight, (v) => { try { localStorage.setItem('reader_lineheight', v) } catch (e) {} })
+watch(readingMode, value => saveReadingMode(value))
 </script>
 
 <style scoped>
 .chapter-reader {
   min-height: 100vh;
+  height: 100dvh;
   display: flex;
   flex-direction: column;
   background: var(--color-bg);
   position: relative;
+  overflow: hidden;
 }
 
 /* 夜间模式 — data-theme="dark" 已提供变量，此处仅覆盖特殊值 */
@@ -490,9 +504,7 @@ watch(lineHeight, (v) => { try { localStorage.setItem('reader_lineheight', v) } 
 /* 阅读区 */
 .reader-body {
   flex: 1;
-  padding: var(--spacing-lg) var(--spacing-md);
-  overflow-y: auto;
-  -webkit-overflow-scrolling: touch;
+  min-height: 0;
 }
 
 .story-text :deep(p) {
@@ -707,6 +719,17 @@ watch(lineHeight, (v) => { try { localStorage.setItem('reader_lineheight', v) } 
   color: var(--color-text-secondary);
   width: 40px;
   flex-shrink: 0;
+}
+
+.setting-label-wide {
+  width: 64px;
+}
+
+.comment-card,
+.chapter-nav,
+.comment-summary,
+.destiny-confirmed {
+  break-inside: avoid;
 }
 
 .size-btn {

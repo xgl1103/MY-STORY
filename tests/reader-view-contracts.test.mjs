@@ -40,3 +40,14 @@ test('preview repaginates for every rendered detail and styles its settings tran
   assert.match(source, /\.slide-up-enter-active/)
   assert.match(source, /\.slide-up-leave-active/)
 })
+
+test('chapter reader connects paging to settings, progress and chapter boundaries', async () => {
+  const source = await read('../src/views/ChapterReader.vue')
+  assert.match(source, /ReadingViewport/)
+  assert.match(source, /ReadingModeToggle/)
+  assert.match(source, /阅读方式/)
+  assert.match(source, /@boundary-prev="goPrev"/)
+  assert.match(source, /@boundary-next="goNext"/)
+  assert.match(source, /@progress-change="readProgress = \$event"/)
+  assert.match(source, /saveReadingMode/)
+})
