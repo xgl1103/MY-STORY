@@ -20,9 +20,15 @@ import {
   READING_MODES,
   normalizeReadingMode,
   getPageTurn,
-  pageProgress,
-  pageAtProgress
+  pageProgress
 } from '@/features/reader/readingMode'
+import {
+  createLatestFrameScheduler,
+  isPageTurnEnabled,
+  pageTurnDirectionForClick,
+  pageTurnDirectionForKey,
+  restorePageAtProgress
+} from '@/features/reader/readingViewportController'
 
 const props = defineProps({
   mode: { type: String, default: READING_MODES.SCROLL },
@@ -39,7 +45,10 @@ const currentPage = ref(0)
 const pageCount = ref(1)
 const lastProgress = ref(0)
 let resizeObserver = null
-let frame = 0
+let isMounted = false
+const measurementScheduler = createLatestFrameScheduler({
+  isActive: () => isMounted && normalizedMode.value === READING_MODES.PAGE
+})
 
 function isInteractiveTarget(target) {
   return target instanceof Element && Boolean(target.closest(
@@ -61,26 +70,22 @@ function syncPagePosition() {
 function measurePages(preserveProgress = true) {
   const viewportEl = viewport.value
   const contentEl = content.value
-  if (!viewportEl || !contentEl || normalizedMode.value !== READING_MODES.PAGE) return
+  if (!isMounted || !viewportEl || !contentEl || normalizedMode.value !== READING_MODES.PAGE) return
   const width = viewportEl.clientWidth
   const height = viewportEl.clientHeight
   if (width <= 0 || height <= 0) return
 
   const progress = preserveProgress ? lastProgress.value : 0
   viewportEl.style.setProperty('--reader-page-width', `${width}px`)
-
-  requestAnimationFrame(() => {
-    const measured = Math.max(1, Math.ceil(contentEl.scrollWidth / width))
-    pageCount.value = Number.isFinite(measured) ? measured : 1
-    currentPage.value = pageAtProgress(progress, pageCount.value)
-    syncPagePosition()
-  })
+  const restored = restorePageAtProgress(progress, contentEl.scrollWidth, width)
+  pageCount.value = restored.pageCount
+  currentPage.value = restored.page
+  syncPagePosition()
 }
 
 function scheduleMeasure(preserveProgress = true) {
-  cancelAnimationFrame(frame)
   nextTick(() => {
-    frame = requestAnimationFrame(() => measurePages(preserveProgress))
+    measurementScheduler.schedule(() => measurePages(preserveProgress))
   })
 }
 
@@ -96,7 +101,7 @@ function handleScroll() {
 }
 
 function turnPage(direction) {
-  if (props.disabled || normalizedMode.value !== READING_MODES.PAGE) return
+  if (!isPageTurnEnabled(normalizedMode.value, props.disabled)) return
   const result = getPageTurn(currentPage.value, pageCount.value, direction)
   if (result.boundary === 'prev') return emit('boundary-prev')
   if (result.boundary === 'next') return emit('boundary-next')
@@ -108,17 +113,27 @@ function handleClick(event) {
   if (props.disabled || normalizedMode.value !== READING_MODES.PAGE || isInteractiveTarget(event.target)) return
   const rect = viewport.value?.getBoundingClientRect()
   if (!rect) return
-  turnPage(event.clientX < rect.left + rect.width / 2 ? -1 : 1)
+  const direction = pageTurnDirectionForClick({
+    mode: normalizedMode.value,
+    disabled: props.disabled,
+    clientX: event.clientX,
+    left: rect.left,
+    width: rect.width
+  })
+  if (direction) turnPage(direction)
 }
 
 function handleKeydown(event) {
+  if (normalizedMode.value !== READING_MODES.PAGE) return
   if (props.disabled || isInteractiveTarget(event.target)) return
-  if (event.key === 'ArrowLeft') {
+  const direction = pageTurnDirectionForKey({
+    mode: normalizedMode.value,
+    disabled: props.disabled,
+    key: event.key
+  })
+  if (direction) {
     event.preventDefault()
-    turnPage(-1)
-  } else if (event.key === 'ArrowRight') {
-    event.preventDefault()
-    turnPage(1)
+    turnPage(direction)
   }
 }
 
@@ -153,6 +168,7 @@ watch(() => props.contentKey, resetToStart)
 watch(() => props.repaginateKey, repaginate)
 
 onMounted(() => {
+  isMounted = true
   if (typeof ResizeObserver !== 'undefined') {
     resizeObserver = new ResizeObserver(() => scheduleMeasure(true))
     if (viewport.value) resizeObserver.observe(viewport.value)
@@ -165,7 +181,8 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
-  cancelAnimationFrame(frame)
+  isMounted = false
+  measurementScheduler.dispose()
   resizeObserver?.disconnect()
   window.removeEventListener('resize', repaginate)
 })
