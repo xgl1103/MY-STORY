@@ -51,3 +51,22 @@ test('chapter reader connects paging to settings, progress and chapter boundarie
   assert.match(source, /@progress-change="readProgress = \$event"/)
   assert.match(source, /saveReadingMode/)
 })
+
+test('chapter reader repaginates from every dynamically rendered layout input', async () => {
+  const source = await read('../src/views/ChapterReader.vue')
+  const layoutKey = source.slice(
+    source.indexOf('const readerLayoutKey'),
+    source.indexOf('const currentIndex')
+  )
+
+  assert.match(layoutKey, /JSON\.stringify\(\{/)
+  assert.match(layoutKey, /chapterId: chapter\.value\?\.id/)
+  assert.match(layoutKey, /contentBlocks: contentBlocks\.value/)
+  assert.match(layoutKey, /pendingChoice: pendingChoice\.value/)
+  assert.match(layoutKey, /selectedChoice: selectedChoice\.value/)
+  assert.match(layoutKey, /totalCommentCount: totalCommentCount\.value/)
+  assert.match(layoutKey, /heatLevel: heatLevel\.value/)
+  assert.match(layoutKey, /fontSize: fontSize\.value/)
+  assert.match(layoutKey, /lineHeight: lineHeight\.value/)
+  assert.doesNotMatch(layoutKey, /content\?\.length/)
+})

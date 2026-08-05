@@ -243,13 +243,16 @@ const contentBlocks = computed(() => {
   return blocks
 })
 
-const readerLayoutKey = computed(() => [
-  chapter.value?.id || '',
-  chapter.value?.content?.length || 0,
-  comments.value.length,
-  fontSize.value,
-  lineHeight.value
-].join('|'))
+const readerLayoutKey = computed(() => JSON.stringify({
+  chapterId: chapter.value?.id || '',
+  contentBlocks: contentBlocks.value,
+  pendingChoice: pendingChoice.value,
+  selectedChoice: selectedChoice.value,
+  totalCommentCount: totalCommentCount.value,
+  heatLevel: heatLevel.value,
+  fontSize: fontSize.value,
+  lineHeight: lineHeight.value
+}))
 
 const currentIndex = computed(() => {
   if (!chapter.value) return -1
