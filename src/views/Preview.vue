@@ -1,11 +1,21 @@
 <template>
   <div class="preview">
-    <!-- 顶部栏：返回按钮 + 状态标签 -->
     <header class="topbar">
       <button class="btn-back" @click="back">
         <span class="back-arrow">‹</span> 返回
       </button>
       <span class="status-label">{{ statusLabel }}</span>
+      <button
+        v-if="result && !generating"
+        type="button"
+        class="btn-reader-settings"
+        aria-label="阅读设置"
+        :aria-expanded="showReaderSettings"
+        ref="settingsTrigger"
+        @click="showReaderSettings = !showReaderSettings"
+      >
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-2.82 1.18V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 3.17 14H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 10 3.17V3a2 2 0 0 1 4 0v.09A1.65 1.65 0 0 0 15 4.6a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 20.83 10H21a2 2 0 0 1 0 4h-.09A1.65 1.65 0 0 0 19.4 15z"/></svg>
+      </button>
     </header>
 
     <!-- 状态一：生成中 -->
@@ -27,7 +37,13 @@
 
     <!-- 状态三：预览 -->
     <template v-else-if="result">
-      <div class="content-area">
+      <ReadingViewport
+        class="content-area"
+        :mode="effectiveReadingMode"
+        :content-key="segmentId || routeDay || ''"
+        :repaginate-key="previewLayoutKey"
+        :disabled="showReaderSettings || suppressSettingsPageTurn"
+      >
         <!-- 故事正文 / 编辑器 -->
         <article v-if="!editing" class="story-text">{{ result.content }}</article>
         <textarea
@@ -70,7 +86,16 @@
         <p v-if="regenDisabled && !editing" class="regen-hint">
           已达重生成上限，可手动编辑
         </p>
-      </div>
+      </ReadingViewport>
+
+      <transition name="slide-up">
+        <div v-if="showReaderSettings" ref="settingsPanel" class="preview-settings-panel" data-no-page-turn>
+          <div class="setting-row">
+            <span class="setting-label">阅读方式</span>
+            <ReadingModeToggle v-model="readingMode" />
+          </div>
+        </div>
+      </transition>
 
       <!-- 操作按钮区 -->
       <footer class="actions">
@@ -102,7 +127,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { getStoryEngine } from '@/core'
 import { DiaryRepository } from '@/db/repositories/DiaryRepository'
@@ -111,6 +136,14 @@ import { SegmentRepository } from '@/db/repositories/SegmentRepository'
 import { triggerCommentGeneration } from '@/utils/CommentGenerator'
 import LoadingSpinner from '@/components/LoadingSpinner.vue'
 import ErrorToast from '@/components/ErrorToast.vue'
+import ReadingViewport from '@/components/ReadingViewport.vue'
+import ReadingModeToggle from '@/components/ReadingModeToggle.vue'
+import { createOutsidePanelController } from '@/features/reader/outsidePanelController'
+import {
+  READING_MODES,
+  loadReadingMode,
+  saveReadingMode
+} from '@/features/reader/readingMode'
 
 const router = useRouter()
 const route = useRoute()
@@ -134,6 +167,19 @@ const editing = ref(false)
 const editedText = ref('')
 const revisionCount = ref(0)
 const submitting = ref(false) // 定稿/保存进行中
+const readingMode = ref(loadReadingMode())
+const showReaderSettings = ref(false)
+const settingsTrigger = ref(null)
+const settingsPanel = ref(null)
+const suppressSettingsPageTurn = ref(false)
+const settingsPanelController = createOutsidePanelController({
+  eventTarget: document,
+  isOpen: () => showReaderSettings.value,
+  getTrigger: () => settingsTrigger.value,
+  getPanel: () => settingsPanel.value,
+  close: () => { showReaderSettings.value = false },
+  setSuppressed: value => { suppressSettingsPageTurn.value = value }
+})
 
 // 路由参数缓存（供 onRetry 重新调用 doGenerate）
 const routeDay = ref(null)
@@ -195,11 +241,25 @@ const referenceList = computed(() => {
   }
 })
 
+const effectiveReadingMode = computed(() => (
+  editing.value ? READING_MODES.SCROLL : readingMode.value
+))
 // 重新生成是否已达上限（最多 3 次）
 const regenDisabled = computed(() => revisionCount.value >= 3)
 
+const previewLayoutKey = computed(() => [
+  result.value?.content || '',
+  JSON.stringify(mappingList.value),
+  JSON.stringify(referenceList.value),
+  editing.value ? 'editing' : 'reading',
+  regenDisabled.value
+].join('|'))
+
+watch(readingMode, value => saveReadingMode(value))
+
 // ===== 生命周期 =====
 onMounted(async () => {
+  settingsPanelController.mount()
   const day = Number(route.query.day)
   // 引擎未初始化：直接展示错误
   if (engineInitError) {
@@ -242,6 +302,7 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
+  settingsPanelController.unmount()
   stopTips()
 })
 
@@ -324,6 +385,7 @@ async function regenerate() {
 
 // 切换编辑模式：textarea 替换 article
 function toggleEdit() {
+  showReaderSettings.value = false
   if (editing.value) {
     // 取消编辑，丢弃修改
     editing.value = false
@@ -437,13 +499,16 @@ function back() {
 <style scoped>
 .preview {
   min-height: 100vh;
+  height: 100dvh;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
   background: var(--color-bg);
 }
 
 /* ===== 顶部栏 ===== */
 .topbar {
+  position: relative;
   flex-shrink: 0;
   display: flex;
   align-items: center;
@@ -469,11 +534,23 @@ function back() {
 }
 
 .status-label {
-  margin-left: auto;
-  margin-right: auto;
-  transform: translateX(-24px);
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
   font-size: var(--font-size-sm);
   color: var(--color-text-secondary);
+}
+
+.btn-reader-settings {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  margin-left: auto;
+  color: var(--color-text-secondary);
+  background: transparent;
+  border-radius: var(--radius-sm);
 }
 
 /* ===== 通用状态容器（生成中 / 错误） ===== */
@@ -492,8 +569,45 @@ function back() {
 /* ===== 预览内容区 ===== */
 .content-area {
   flex: 1;
-  overflow-y: auto;
+  min-height: 0;
+}
+
+.preview-settings-panel {
+  position: fixed;
+  left: 50%;
+  bottom: 0;
+  z-index: 30;
+  width: 100%;
+  max-width: 480px;
   padding: var(--spacing-lg) var(--spacing-md);
+  padding-bottom: calc(var(--spacing-lg) + env(safe-area-inset-bottom, 0px));
+  transform: translateX(-50%);
+  border-top: 1px solid var(--color-border);
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  background: var(--color-surface);
+}
+
+.setting-row {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+}
+
+.setting-label {
+  flex-shrink: 0;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.slide-up-enter-active,
+.slide-up-leave-active {
+  transition: transform 0.3s ease, opacity 0.3s ease;
+}
+
+.slide-up-enter-from,
+.slide-up-leave-to {
+  transform: translateX(-50%) translateY(100%);
+  opacity: 0;
 }
 
 .story-text {
