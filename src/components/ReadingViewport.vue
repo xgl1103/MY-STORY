@@ -29,6 +29,7 @@ import {
   pageTurnDirectionForKey,
   restorePageAtProgress
 } from '@/features/reader/readingViewportController'
+import { isOutsidePanelDismissClick } from '@/features/reader/outsidePanelController'
 
 const props = defineProps({
   mode: { type: String, default: READING_MODES.SCROLL },
@@ -110,6 +111,7 @@ function turnPage(direction) {
 }
 
 function handleClick(event) {
+  if (isOutsidePanelDismissClick(event)) return
   if (props.disabled || normalizedMode.value !== READING_MODES.PAGE || isInteractiveTarget(event.target)) return
   const rect = viewport.value?.getBoundingClientRect()
   if (!rect) return

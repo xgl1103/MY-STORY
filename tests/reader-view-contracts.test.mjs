@@ -23,6 +23,12 @@ test('reading viewport owns paging, progress and boundary events', async () => {
   assert.match(source, /closest\(/)
 })
 
+test('reading viewport explicitly ignores clicks marked as settings dismissals', async () => {
+  const source = await read('../src/components/ReadingViewport.vue')
+  assert.match(source, /import \{ isOutsidePanelDismissClick \} from '@\/features\/reader\/outsidePanelController'/)
+  assert.match(source, /function handleClick\(event\) \{\s*if \(isOutsidePanelDismissClick\(event\)\) return/)
+})
+
 test('preview exposes settings and uses the shared reading viewport', async () => {
   const source = await read('../src/views/Preview.vue')
   assert.match(source, /ReadingViewport/)

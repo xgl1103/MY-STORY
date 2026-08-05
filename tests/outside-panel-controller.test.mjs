@@ -1,6 +1,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { createOutsidePanelController } from '../src/features/reader/outsidePanelController.js'
+import * as outsidePanelController from '../src/features/reader/outsidePanelController.js'
+
+const { createOutsidePanelController } = outsidePanelController
 
 function createEventTarget() {
   const listeners = new Map()
@@ -15,8 +17,10 @@ function createEventTarget() {
       const current = listeners.get(type)
       if (current?.listener === listener && current.options === options) listeners.delete(type)
     },
-    dispatch(type, target) {
-      listeners.get(type)?.listener({ target })
+    dispatch(type, target, eventDetails = {}) {
+      const event = { target, ...eventDetails }
+      listeners.get(type)?.listener(event)
+      return event
     },
     listener(type) {
       return listeners.get(type)
@@ -61,10 +65,12 @@ test('mounts capture listeners once and ignores pointerdowns while closed or ins
   eventTarget.dispatch('pointerdown', triggerChild)
   eventTarget.dispatch('pointerdown', panelChild)
 
-  assert.equal(eventTarget.count(), 2)
+  assert.equal(eventTarget.count(), 3)
   assert.equal(eventTarget.addCallCount('pointerdown'), 1)
+  assert.equal(eventTarget.addCallCount('pointercancel'), 1)
   assert.equal(eventTarget.addCallCount('click'), 1)
   assert.equal(eventTarget.listener('pointerdown').options, true)
+  assert.equal(eventTarget.listener('pointercancel').options, true)
   assert.equal(eventTarget.listener('click').options, true)
   assert.deepEqual(closed, [])
   assert.deepEqual(suppressed, [])
@@ -93,7 +99,7 @@ test('does not close or suppress an open panel for pointerdowns inside its trigg
   assert.deepEqual(suppressed, [])
 })
 
-test('closes and suppresses on an outside pointerdown, then releases suppression after its click', () => {
+test('marks the exact dismissing click for synchronous downstream handling and releases suppression later', () => {
   const eventTarget = createEventTarget()
   const scheduled = []
   const closed = []
@@ -110,17 +116,85 @@ test('closes and suppresses on an outside pointerdown, then releases suppression
 
   controller.mount()
   eventTarget.dispatch('pointerdown', {})
-  eventTarget.dispatch('click', {})
+  const dismissClick = eventTarget.dispatch('click', {})
 
   assert.deepEqual(closed, ['close'])
   assert.deepEqual(suppressed, [true])
   assert.equal(scheduled.length, 1)
+  assert.equal(typeof outsidePanelController.isOutsidePanelDismissClick, 'function')
+  assert.equal(outsidePanelController.isOutsidePanelDismissClick(dismissClick), true)
+  assert.equal(outsidePanelController.isOutsidePanelDismissClick({}), false)
 
   scheduled[0]()
   assert.deepEqual(suppressed, [true, false])
 
   eventTarget.dispatch('click', {})
   assert.equal(scheduled.length, 1)
+})
+
+test('pointercancel clears armed suppression when pointerdown produces no click', () => {
+  const eventTarget = createEventTarget()
+  const scheduled = []
+  const suppressed = []
+  const controller = createOutsidePanelController({
+    eventTarget,
+    isOpen: () => true,
+    getTrigger: () => createNode(),
+    getPanel: () => createNode(),
+    close: () => {},
+    setSuppressed: value => suppressed.push(value),
+    scheduleRelease: callback => scheduled.push(callback)
+  })
+
+  controller.mount()
+  eventTarget.dispatch('pointerdown', {})
+  eventTarget.dispatch('pointercancel', {})
+  eventTarget.dispatch('click', {})
+
+  assert.deepEqual(suppressed, [true, false])
+  assert.equal(scheduled.length, 0)
+})
+
+test('a later pointerdown clears stale suppression before evaluating its target', () => {
+  const eventTarget = createEventTarget()
+  const triggerChild = {}
+  const closed = []
+  const suppressed = []
+  const controller = createOutsidePanelController({
+    eventTarget,
+    isOpen: () => true,
+    getTrigger: () => createNode(triggerChild),
+    getPanel: () => createNode(),
+    close: () => closed.push('close'),
+    setSuppressed: value => suppressed.push(value)
+  })
+
+  controller.mount()
+  eventTarget.dispatch('pointerdown', {})
+  eventTarget.dispatch('pointerdown', triggerChild)
+
+  assert.deepEqual(closed, ['close'])
+  assert.deepEqual(suppressed, [true, false])
+})
+
+test('non-primary pointerdowns neither close nor suppress an open panel', () => {
+  const eventTarget = createEventTarget()
+  const closed = []
+  const suppressed = []
+  const controller = createOutsidePanelController({
+    eventTarget,
+    isOpen: () => true,
+    getTrigger: () => createNode(),
+    getPanel: () => createNode(),
+    close: () => closed.push('close'),
+    setSuppressed: value => suppressed.push(value)
+  })
+
+  controller.mount()
+  eventTarget.dispatch('pointerdown', {}, { button: 2 })
+
+  assert.deepEqual(closed, [])
+  assert.deepEqual(suppressed, [])
 })
 
 test('unmount removes listeners, clears suppression, and remains idempotent', () => {
@@ -140,6 +214,7 @@ test('unmount removes listeners, clears suppression, and remains idempotent', ()
   controller.unmount()
 
   assert.equal(eventTarget.count(), 0)
+  assert.equal(eventTarget.addCallCount('pointercancel'), 1)
   assert.deepEqual(suppressed, [false])
 })
 
