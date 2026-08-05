@@ -22,3 +22,12 @@ test('reading viewport owns paging, progress and boundary events', async () => {
   assert.match(source, /disabled/)
   assert.match(source, /closest\(/)
 })
+
+test('preview exposes settings and uses the shared reading viewport', async () => {
+  const source = await read('../src/views/Preview.vue')
+  assert.match(source, /ReadingViewport/)
+  assert.match(source, /ReadingModeToggle/)
+  assert.match(source, /aria-label="阅读设置"/)
+  assert.match(source, /effectiveReadingMode/)
+  assert.match(source, /saveReadingMode/)
+})
