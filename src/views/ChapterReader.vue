@@ -114,6 +114,12 @@
         <p>命运已被写下：{{ selectedChoice.description }}</p>
         <button class="nav-btn" @click="goWriteNextDay">记录下一天</button>
       </section>
+
+      <section v-if="!hasNext" class="story-completion" data-no-page-turn>
+        <button type="button" class="completion-btn" data-no-page-turn @click="goHomeAfterStory">
+          完成今日故事，返回首页
+        </button>
+      </section>
     </ReadingViewport>
 
     <!-- 底部进度条 -->
@@ -291,7 +297,8 @@ const readerLayoutKey = computed(() => JSON.stringify({
   totalCommentCount: totalCommentCount.value,
   heatLevel: heatLevel.value,
   fontSize: fontSize.value,
-  lineHeight: lineHeight.value
+  lineHeight: lineHeight.value,
+  completionCta: !hasNext.value
 }))
 
 const currentIndex = computed(() => {
@@ -410,6 +417,10 @@ async function selectDestiny(option) {
 
 function goWriteNextDay() {
   router.push('/diary/write')
+}
+
+function goHomeAfterStory() {
+  router.replace('/')
 }
 
 // 刷新可见评论
@@ -793,6 +804,33 @@ watch(readingMode, value => saveReadingMode(value))
 .choice-option span { color: var(--color-text-secondary); font-size: 12px; line-height: 1.5; }
 .choice-option:disabled { opacity: .55; }
 .destiny-confirmed { display: flex; align-items: center; justify-content: space-between; gap: var(--spacing-sm); color: var(--color-primary); }
+
+.story-completion {
+  display: flex;
+  justify-content: center;
+  padding: var(--spacing-xl) 0 calc(var(--spacing-xl) + 28px);
+}
+
+.completion-btn {
+  min-width: min(100%, 240px);
+  padding: 12px 20px;
+  border: 1px solid rgba(196, 92, 62, 0.28);
+  border-radius: var(--radius-md);
+  background: var(--color-primary);
+  color: #fff;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  box-shadow: 0 8px 20px rgba(196, 92, 62, 0.16);
+}
+
+.completion-btn:active {
+  transform: translateY(1px);
+}
+
+.completion-btn:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 3px;
+}
 
 .heat-badge {
   display: flex;

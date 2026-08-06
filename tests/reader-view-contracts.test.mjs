@@ -105,6 +105,23 @@ test('chapter reader repaginates from every dynamically rendered layout input', 
   assert.doesNotMatch(layoutKey, /content\?\.length/)
 })
 
+test('chapter reader renders a final non-paging completion action back home', async () => {
+  const source = await read('../src/views/ChapterReader.vue')
+  const layoutKey = source.slice(
+    source.indexOf('const readerLayoutKey'),
+    source.indexOf('const currentIndex')
+  )
+
+  assert.match(layoutKey, /completionCta: !hasNext\.value/)
+  assert.match(source, /<section\s+v-if="!hasNext"\s+class="story-completion"\s+data-no-page-turn>/)
+  assert.match(source, /type="button"\s+class="completion-btn"\s+data-no-page-turn\s+@click="goHomeAfterStory"/)
+  assert.match(source, /完成今日故事，返回首页/)
+  assert.match(source, /function goHomeAfterStory\(\) \{[\s\S]*router\.replace\('\/'\)[\s\S]*\}/)
+  assert.match(source, /\.story-completion\s*\{/)
+  assert.match(source, /\.completion-btn\s*\{/)
+  assert.match(source, /\.completion-btn:focus-visible/)
+})
+
 test('chapter reader exposes an accessible, non-paging comment-like button', async () => {
   const source = await read('../src/views/ChapterReader.vue')
 
