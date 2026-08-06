@@ -21,8 +21,11 @@ export const CommentRepository = {
   },
 
   async setLiked(commentId, liked) {
+    const previous = queryOne('SELECT id, likes, is_liked FROM chapter_comments WHERE id = ?', [commentId])
+    if (!previous) return null
+
     const isLiked = Number(liked) ? 1 : 0
-    const updated = execute(
+    execute(
       `UPDATE chapter_comments
        SET likes = MAX(0, COALESCE(likes, 0) +
          CASE WHEN COALESCE(is_liked, 0) = ? THEN 0 WHEN ? = 1 THEN 1 ELSE -1 END),
@@ -30,9 +33,21 @@ export const CommentRepository = {
        WHERE id = ?`,
       [isLiked, isLiked, isLiked, commentId]
     )
-    if (updated === 0) return null
 
-    await markWrite(true)
+    try {
+      await markWrite(true, { throwOnError: true })
+    } catch (e) {
+      execute(
+        'UPDATE chapter_comments SET likes = ?, is_liked = ? WHERE id = ?',
+        [
+          Math.max(0, Number(previous.likes) || 0),
+          Number(previous.is_liked) ? 1 : 0,
+          commentId
+        ]
+      )
+      throw e
+    }
+
     return queryOne('SELECT id, likes, is_liked FROM chapter_comments WHERE id = ?', [commentId])
   },
 

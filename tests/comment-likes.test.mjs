@@ -7,6 +7,7 @@ import { runMigrations } from '../src/db/migrations/index.js'
 
 const initSqlJs = (await import('sql.js/dist/sql-wasm.js')).default
 const wasmPath = fileURLToPath(new URL('../node_modules/sql.js/dist/sql-wasm.wasm', import.meta.url))
+const LS_KEY = 'mystory_db_base64'
 
 test('SCHEMA_SQL creates chapter comments with an unliked default state', () => {
   assert.match(
@@ -67,6 +68,27 @@ function insertComment(likes = 0) {
   return queryOne('SELECT last_insert_rowid() AS id').id
 }
 
+function insertLikedComment(likes = 0) {
+  const id = insertComment(likes)
+  execute('UPDATE chapter_comments SET is_liked = 1 WHERE id = ?', [id])
+  return id
+}
+
+async function readPersistedComment(id) {
+  const base64 = storage.get(LS_KEY)
+  assert.ok(base64, 'expected a persisted database snapshot')
+  const SQL = await initSqlJs({ locateFile: () => wasmPath })
+  const persistedDb = new SQL.Database(Uint8Array.from(Buffer.from(base64, 'base64')))
+  try {
+    const rows = persistedDb.exec('SELECT id, likes, is_liked FROM chapter_comments WHERE id = ' + Number(id))
+    if (!rows.length || !rows[0].values.length) return null
+    const [commentId, likes, isLiked] = rows[0].values[0]
+    return { id: commentId, likes, is_liked: isLiked }
+  } finally {
+    persistedDb.close()
+  }
+}
+
 test('setLiked transitions a persisted comment without repeat changes', async () => {
   const id = insertComment(3)
 
@@ -77,11 +99,42 @@ test('setLiked transitions a persisted comment without repeat changes', async ()
 })
 
 test('setLiked never decrements a zero-like comment below zero', async () => {
-  const id = insertComment(0)
+  const id = insertLikedComment(0)
 
   assert.deepEqual(await CommentRepository.setLiked(id, 0), { id, likes: 0, is_liked: 0 })
 })
 
 test('setLiked returns null when the comment does not exist', async () => {
   assert.equal(await CommentRepository.setLiked(999999, 1), null)
+})
+
+test('setLiked restores the prior in-memory row when forced persistence fails', async () => {
+  const id = insertComment(3)
+  await CommentRepository.setLiked(id, 1)
+  const originalSetItem = localStorage.setItem
+  localStorage.setItem = () => { throw new Error('storage full') }
+
+  try {
+    await assert.rejects(() => CommentRepository.setLiked(id, 0), /storage full/)
+    assert.deepEqual(queryOne('SELECT id, likes, is_liked FROM chapter_comments WHERE id = ?', [id]), {
+      id,
+      likes: 4,
+      is_liked: 1
+    })
+  } finally {
+    localStorage.setItem = originalSetItem
+  }
+})
+
+test('concurrent likes on different comments persist the final state for both rows', async () => {
+  const firstId = insertComment(1)
+  const secondId = insertComment(2)
+
+  await Promise.all([
+    CommentRepository.setLiked(firstId, 1),
+    CommentRepository.setLiked(secondId, 1)
+  ])
+
+  assert.deepEqual(await readPersistedComment(firstId), { id: firstId, likes: 2, is_liked: 1 })
+  assert.deepEqual(await readPersistedComment(secondId), { id: secondId, likes: 3, is_liked: 1 })
 })

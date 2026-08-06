@@ -236,14 +236,15 @@ async function readDbFile() {
 // 把内存数据库写回持久化存储
 export async function persist() {
   if (!db) return
-  // 串行化：如果已有 persist 在进行中，复用其 Promise
-  if (persistPromise) return persistPromise
-
-  persistPromise = doPersist()
+  // 串行化：每个调用排队后重新导出数据库，确保包含排队前的最新内存状态
+  const previous = persistPromise
+  const current = (previous ? previous.catch(() => {}) : Promise.resolve())
+    .then(() => doPersist())
+  persistPromise = current
   try {
-    await persistPromise
+    await current
   } finally {
-    persistPromise = null
+    if (persistPromise === current) persistPromise = null
   }
 }
 
@@ -269,7 +270,8 @@ async function doPersist() {
 // - finalized 状态变更后立即写回
 // - 其他操作每 5 次写回一次
 // Repository 在写操作后调用 markWrite()，由调用方决定是否 force
-export async function markWrite(force = false) {
+export async function markWrite(force = false, options = {}) {
+  const { throwOnError = false } = options
   writeCounter++
   if (force || writeCounter >= 5) {
     try {
@@ -278,6 +280,7 @@ export async function markWrite(force = false) {
     } catch (e) {
       // 写回失败时不重置 writeCounter，下次写入会再次尝试持久化
       console.error('[MyStory] 数据库写回失败，将在下次写入时重试:', e)
+      if (throwOnError) throw e
     }
   }
 }
