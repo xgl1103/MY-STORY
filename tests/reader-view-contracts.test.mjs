@@ -123,20 +123,17 @@ test('chapter reader exposes an accessible, non-paging comment-like button', asy
   assert.match(source, /:fill="Number\(block\.data\.is_liked\) === 1 \? 'currentColor' : 'none'"/)
 })
 
-test('chapter reader persists optimistic comment likes with a pending lock and rollback', async () => {
+test('chapter reader delegates optimistic comment likes to the shared controller', async () => {
   const source = await read('../src/views/ChapterReader.vue')
 
+  assert.match(source, /import \{ createCommentLikeController \} from '@\/features\/reader\/commentLikeController'/)
   assert.match(source, /const pendingCommentLikeIds = ref\(new Set\(\)\)/)
   assert.match(source, /const commentLikeAnimations = ref\(\{\}\)/)
-  assert.match(source, /if \(pendingCommentLikeIds\.value\.has\(commentId\)\) return/)
   assert.match(source, /const nextPending = new Set\(pendingCommentLikeIds\.value\)/)
   assert.match(source, /pendingCommentLikeIds\.value = nextPending/)
   assert.match(source, /comments\.value = comments\.value\.map\(/)
-  assert.match(source, /setCommentLikeAnimation\(commentId, nextLiked \? 'liking' : 'unliking'\)/)
-  assert.match(source, /await CommentRepository\.setLiked\(commentId, Boolean\(nextLiked\)\)/)
-  assert.match(source, /if \(!savedComment\) throw new Error\(/)
-  assert.match(source, /console\.warn\('\[Reader\] 点赞保存失败:'/)
-  assert.match(source, /clearCommentLikeAnimation\(commentId\)/)
+  assert.match(source, /const commentLikeController = createCommentLikeController\(\{[\s\S]*getComment: commentId => comments\.value\.find\(comment => comment\.id === commentId\)[\s\S]*updateComment: updateCommentLikeState[\s\S]*persistLike: \(commentId, liked\) => CommentRepository\.setLiked\(commentId, liked\)[\s\S]*setAnimation: setCommentLikeAnimation[\s\S]*clearAnimation: clearCommentLikeAnimation[\s\S]*setPending: setCommentLikePending[\s\S]*warn: e => console\.warn\('\[Reader\] 点赞保存失败:', e\)[\s\S]*\}\)/)
+  assert.match(source, /async function toggleCommentLike\(comment\) \{[\s\S]*await commentLikeController\.toggle\(comment\)[\s\S]*\}/)
 })
 
 test('chapter reader centers narrower comment cards and supplies reversible like motion', async () => {
@@ -159,6 +156,7 @@ test('chapter reader clears each comment-like animation with an independent fall
   assert.match(source, /const commentLikeAnimationTimers = new Map\(\)/)
   assert.match(source, /function setCommentLikeAnimation\(commentId, animation\) \{[\s\S]*const existingTimer = commentLikeAnimationTimers\.get\(commentId\)[\s\S]*clearTimeout\(existingTimer\)[\s\S]*const timer = setTimeout\(\(\) => clearCommentLikeAnimation\(commentId\), COMMENT_LIKE_ANIMATION_DURATION\)[\s\S]*commentLikeAnimationTimers\.set\(commentId, timer\)/)
   assert.match(source, /function clearCommentLikeAnimation\(commentId\) \{[\s\S]*const timer = commentLikeAnimationTimers\.get\(commentId\)[\s\S]*clearTimeout\(timer\)[\s\S]*commentLikeAnimationTimers\.delete\(commentId\)[\s\S]*\[commentId\]: _animation[\s\S]*commentLikeAnimations\.value = remainingAnimations/)
-  assert.match(source, /setCommentLikeAnimation\(commentId, nextLiked \? 'liking' : 'unliking'\)/)
+  assert.match(source, /setAnimation: setCommentLikeAnimation/)
+  assert.match(source, /clearAnimation: clearCommentLikeAnimation/)
   assert.match(source, /onBeforeUnmount\(\(\) => \{[\s\S]*for \(const timer of commentLikeAnimationTimers\.values\(\)\) clearTimeout\(timer\)[\s\S]*commentLikeAnimationTimers\.clear\(\)/)
 })

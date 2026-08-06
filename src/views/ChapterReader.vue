@@ -190,6 +190,7 @@ import ReadingViewport from '@/components/ReadingViewport.vue'
 import ReadingModeToggle from '@/components/ReadingModeToggle.vue'
 import { loadReadingMode, saveReadingMode } from '@/features/reader/readingMode'
 import { createOutsidePanelController } from '@/features/reader/outsidePanelController'
+import { createCommentLikeController } from '@/features/reader/commentLikeController'
 
 const router = useRouter()
 const route = useRoute()
@@ -227,6 +228,15 @@ const settingsPanelController = createOutsidePanelController({
   getPanel: () => settingsPanel.value,
   close: () => { showSettings.value = false },
   setSuppressed: value => { suppressSettingsPageTurn.value = value }
+})
+const commentLikeController = createCommentLikeController({
+  getComment: commentId => comments.value.find(comment => comment.id === commentId),
+  updateComment: updateCommentLikeState,
+  persistLike: (commentId, liked) => CommentRepository.setLiked(commentId, liked),
+  setAnimation: setCommentLikeAnimation,
+  clearAnimation: clearCommentLikeAnimation,
+  setPending: setCommentLikePending,
+  warn: e => console.warn('[Reader] 点赞保存失败:', e)
 })
 
 // 渐进展示定时器：每 10 秒刷新可见评论
@@ -453,36 +463,7 @@ function setCommentLikeAnimation(commentId, animation) {
 }
 
 async function toggleCommentLike(comment) {
-  const commentId = comment.id
-  if (pendingCommentLikeIds.value.has(commentId)) return
-
-  const previousLikes = Math.max(0, Number(comment.likes) || 0)
-  const previousIsLiked = Number(comment.is_liked) ? 1 : 0
-  const nextLiked = previousIsLiked === 0
-
-  setCommentLikePending(commentId, true)
-  updateCommentLikeState(commentId, {
-    likes: Math.max(0, previousLikes + (nextLiked ? 1 : -1)),
-    is_liked: nextLiked ? 1 : 0
-  })
-  setCommentLikeAnimation(commentId, nextLiked ? 'liking' : 'unliking')
-
-  try {
-    const savedComment = await CommentRepository.setLiked(commentId, Boolean(nextLiked))
-    if (!savedComment) throw new Error('Comment was not found')
-    updateCommentLikeState(commentId, {
-      likes: savedComment.likes,
-      is_liked: savedComment.is_liked
-    })
-  } catch (e) {
-    updateCommentLikeState(commentId, {
-      likes: previousLikes,
-      is_liked: previousIsLiked
-    })
-    console.warn('[Reader] 点赞保存失败:', e)
-  } finally {
-    setCommentLikePending(commentId, false)
-  }
+  await commentLikeController.toggle(comment)
 }
 
 function goPrev() {
