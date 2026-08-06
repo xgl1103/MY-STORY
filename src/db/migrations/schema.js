@@ -137,6 +137,7 @@ CREATE TABLE IF NOT EXISTS chapter_comments (
   avatar_color     TEXT NOT NULL,
   content          TEXT NOT NULL,
   likes            INTEGER DEFAULT 0,
+  is_liked         INTEGER NOT NULL DEFAULT 0,
   reveal_at        INTEGER DEFAULT 0,
   created_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );

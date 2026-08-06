@@ -90,11 +90,12 @@ test('persists a selection draft immediately through the storage contract', () =
   assert.deepEqual(JSON.parse(values.get('diary_draft_1')), draft)
 })
 
-test('migration 8 adds the weather column and records its version', async () => {
+test('migration chain from version 7 adds weather and records version 9', async () => {
   const SQL = await initSqlJs()
   const db = new SQL.Database()
   db.run('CREATE TABLE app_config (key TEXT UNIQUE, value TEXT, updated_at TEXT)')
   db.run('CREATE TABLE diary_entries (id INTEGER PRIMARY KEY, mood TEXT)')
+  db.run('CREATE TABLE chapter_comments (id INTEGER PRIMARY KEY, likes INTEGER DEFAULT 0)')
   db.run("INSERT INTO app_config (key, value) VALUES ('db_version', '7')")
 
   await runMigrations(db)
@@ -102,6 +103,6 @@ test('migration 8 adds the weather column and records its version', async () => 
   const columns = db.exec('PRAGMA table_info(diary_entries)')[0].values.map(row => row[1])
   const version = db.exec("SELECT value FROM app_config WHERE key = 'db_version'")[0].values[0][0]
   assert.ok(columns.includes('weather'))
-  assert.equal(version, '8')
+  assert.equal(version, '9')
   db.close()
 })

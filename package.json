@@ -6,8 +6,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "test": "npm run test:reader-mode && npm run test:reader-views && npm run test:monthly-calendar && npm run test:diary-selections && npm run test:fullchain && npm run test:narrative && npm run test:serverless && npm run test:planner && npm run test:handoff && npm run test:sqlite-memory && npm run test:data-export",
+    "test": "npm run test:reader-mode && npm run test:comment-likes && npm run test:reader-views && npm run test:monthly-calendar && npm run test:diary-selections && npm run test:fullchain && npm run test:narrative && npm run test:serverless && npm run test:planner && npm run test:handoff && npm run test:sqlite-memory && npm run test:data-export",
     "test:reader-mode": "node --test tests/reading-mode.test.mjs",
+    "test:comment-likes": "node --test tests/comment-likes.test.mjs tests/comment-like-controller.test.mjs",
     "test:reader-views": "node --test tests/reader-view-contracts.test.mjs tests/reading-viewport-controller.test.mjs tests/outside-panel-controller.test.mjs",
     "test:fullchain": "node tests/fullchain.test.mjs",
     "test:narrative": "node tests/narrative-graph.test.mjs",

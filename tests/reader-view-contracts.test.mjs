@@ -104,3 +104,76 @@ test('chapter reader repaginates from every dynamically rendered layout input', 
   assert.match(layoutKey, /lineHeight: lineHeight\.value/)
   assert.doesNotMatch(layoutKey, /content\?\.length/)
 })
+
+test('chapter reader renders a final non-paging completion action back home', async () => {
+  const source = await read('../src/views/ChapterReader.vue')
+  const layoutKey = source.slice(
+    source.indexOf('const readerLayoutKey'),
+    source.indexOf('const currentIndex')
+  )
+
+  assert.match(layoutKey, /completionCta: !hasNext\.value/)
+  assert.match(source, /<section\s+v-if="!hasNext"\s+class="story-completion"\s+data-no-page-turn>/)
+  assert.match(source, /type="button"\s+class="completion-btn"\s+data-no-page-turn\s+@click="goHomeAfterStory"/)
+  assert.match(source, /完成今日故事，返回首页/)
+  assert.match(source, /function goHomeAfterStory\(\) \{[\s\S]*router\.replace\('\/'\)[\s\S]*\}/)
+  assert.match(source, /\.story-completion\s*\{/)
+  assert.match(source, /\.completion-btn\s*\{/)
+  assert.match(source, /\.completion-btn:focus-visible/)
+})
+
+test('chapter reader exposes an accessible, non-paging comment-like button', async () => {
+  const source = await read('../src/views/ChapterReader.vue')
+
+  assert.match(source, /type="button"\s+class="comment-like-button"/)
+  assert.match(source, /:aria-pressed="Number\(block\.data\.is_liked\) === 1"/)
+  assert.match(source, /:aria-label="Number\(block\.data\.is_liked\) === 1 \? '取消点赞' : '点赞'"/)
+  assert.match(source, /data-no-page-turn/)
+  assert.match(source, /@click="toggleCommentLike\(block\.data\)"/)
+  assert.match(source, /@animationend="clearCommentLikeAnimation\(block\.data\.id\)"/)
+  assert.match(source, /comment-like-count/)
+  assert.match(source, /'is-liked': Number\(block\.data\.is_liked\) === 1/)
+  assert.match(source, /'is-liking': commentLikeAnimations\[block\.data\.id\] === 'liking'/)
+  assert.match(source, /'is-unliking': commentLikeAnimations\[block\.data\.id\] === 'unliking'/)
+  assert.match(source, /width="16" height="16"/)
+  assert.match(source, /stroke="currentColor"/)
+  assert.match(source, /:fill="Number\(block\.data\.is_liked\) === 1 \? 'currentColor' : 'none'"/)
+})
+
+test('chapter reader delegates optimistic comment likes to the shared controller', async () => {
+  const source = await read('../src/views/ChapterReader.vue')
+
+  assert.match(source, /import \{ createCommentLikeController \} from '@\/features\/reader\/commentLikeController'/)
+  assert.match(source, /const pendingCommentLikeIds = ref\(new Set\(\)\)/)
+  assert.match(source, /const commentLikeAnimations = ref\(\{\}\)/)
+  assert.match(source, /const nextPending = new Set\(pendingCommentLikeIds\.value\)/)
+  assert.match(source, /pendingCommentLikeIds\.value = nextPending/)
+  assert.match(source, /comments\.value = comments\.value\.map\(/)
+  assert.match(source, /const commentLikeController = createCommentLikeController\(\{[\s\S]*getComment: commentId => comments\.value\.find\(comment => comment\.id === commentId\)[\s\S]*updateComment: updateCommentLikeState[\s\S]*persistLike: \(commentId, liked\) => CommentRepository\.setLiked\(commentId, liked\)[\s\S]*setAnimation: setCommentLikeAnimation[\s\S]*clearAnimation: clearCommentLikeAnimation[\s\S]*setPending: setCommentLikePending[\s\S]*warn: e => console\.warn\('\[Reader\] 点赞保存失败:', e\)[\s\S]*\}\)/)
+  assert.match(source, /async function toggleCommentLike\(comment\) \{[\s\S]*await commentLikeController\.toggle\(comment\)[\s\S]*\}/)
+})
+
+test('chapter reader centers narrower comment cards and supplies reversible like motion', async () => {
+  const source = await read('../src/views/ChapterReader.vue')
+
+  assert.match(source, /\.comment-card\s*\{[\s\S]*width: min\(92%, 680px\);[\s\S]*box-sizing: border-box;[\s\S]*margin-left: auto;[\s\S]*margin-right: auto;/)
+  assert.match(source, /\.comment-like-button\s*\{[\s\S]*color: var\(--color-text-tertiary\)/)
+  assert.match(source, /\.comment-like-button\.is-liked\s*\{[\s\S]*color: #/)
+  assert.match(source, /\.comment-like-button:focus-visible/)
+  assert.match(source, /\.comment-like-button:disabled/)
+  assert.match(source, /@keyframes comment-heart-like/)
+  assert.match(source, /@keyframes comment-heart-unlike/)
+  assert.match(source, /@media \(prefers-reduced-motion: reduce\)/)
+})
+
+test('chapter reader clears each comment-like animation with an independent fallback timer', async () => {
+  const source = await read('../src/views/ChapterReader.vue')
+
+  assert.match(source, /const COMMENT_LIKE_ANIMATION_DURATION = 480/)
+  assert.match(source, /const commentLikeAnimationTimers = new Map\(\)/)
+  assert.match(source, /function setCommentLikeAnimation\(commentId, animation\) \{[\s\S]*const existingTimer = commentLikeAnimationTimers\.get\(commentId\)[\s\S]*clearTimeout\(existingTimer\)[\s\S]*const timer = setTimeout\(\(\) => clearCommentLikeAnimation\(commentId\), COMMENT_LIKE_ANIMATION_DURATION\)[\s\S]*commentLikeAnimationTimers\.set\(commentId, timer\)/)
+  assert.match(source, /function clearCommentLikeAnimation\(commentId\) \{[\s\S]*const timer = commentLikeAnimationTimers\.get\(commentId\)[\s\S]*clearTimeout\(timer\)[\s\S]*commentLikeAnimationTimers\.delete\(commentId\)[\s\S]*\[commentId\]: _animation[\s\S]*commentLikeAnimations\.value = remainingAnimations/)
+  assert.match(source, /setAnimation: setCommentLikeAnimation/)
+  assert.match(source, /clearAnimation: clearCommentLikeAnimation/)
+  assert.match(source, /onBeforeUnmount\(\(\) => \{[\s\S]*for \(const timer of commentLikeAnimationTimers\.values\(\)\) clearTimeout\(timer\)[\s\S]*commentLikeAnimationTimers\.clear\(\)/)
+})
