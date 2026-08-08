@@ -155,7 +155,9 @@ export class StoryRAGRetriever {
 
     if (segments.length === 0) return []
 
-    // 计算每个段落的相关度分数
+    // 计算每个段落的相关度分数（纯关键词匹配，不做时间衰减）
+    // StoryRAG 的核心目的是远距离回调——第 50 天能回忆起第 5 天的细节，
+    // 时间衰减与这一目的矛盾，因此移除。
     const scored = segments.map(seg => {
       let score = 0
       const contentLower = seg.content
@@ -163,9 +165,6 @@ export class StoryRAGRetriever {
         const matches = contentLower.split(kw).length - 1
         score += matches
       }
-      // 时间衰减：越早的故事权重略低
-      const dayOffset = seg.story_day ? Math.min(seg.story_day / 90, 1) : 0.5
-      score = score * (1 - dayOffset * 0.3)
       return { ...seg, score }
     })
 

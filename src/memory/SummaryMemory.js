@@ -13,7 +13,7 @@ class SummaryMemory {
   constructor(chapterRepo) {
     this.chapterRepo = chapterRepo;
     this.maxChapters = 6;       // 最多 6 个章节
-    this.fallbackChapters = 0;  // 0 = 不降级，保留全部
+    this.fallbackChapters = 2;  // 超预算时保留最近 2 章摘要（原 0 = 不降级，但 slice(-0) 实际不削减）
     this.tokenBudget = 3000;    // Token 预算上限（原 1500）
   }
 

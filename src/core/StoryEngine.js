@@ -249,6 +249,7 @@ class StoryEngine {
         foreshadowing,
         chapterPurpose: this._getChapterPurpose(chapter.chapter_number),
         encounter,
+        heroName: user.hero_name,
       })
 
       // 6. 状态置为 generating（S-1 状态机）
@@ -531,6 +532,7 @@ class StoryEngine {
         chapterPurpose: this._getChapterPurpose(chapter ? chapter.chapter_number : 0),
         encounter: null,
         reuseExisting: true,
+        heroName: user.hero_name,
       })
 
       // Prompt 拼装（isRegenerate=true，含五层记忆）
@@ -670,11 +672,10 @@ class StoryEngine {
 
     } catch (error) {
       console.error('重新生成失败:', error);
-      if (this._currentSegmentId) {
-        try {
-          await this.segmentRepo.updateStatus(this._currentSegmentId, 'generate_failed');
-        } catch (_) { /* 忽略二次错误 */ }
-      }
+      // P0 修复：直接使用 segmentId 回滚，不依赖 this._currentSegmentId（赋值前异常时为 null）
+      try {
+        await this.segmentRepo.updateStatus(segmentId, 'generate_failed');
+      } catch (_) { /* 忽略二次错误 */ }
       return {
         success: false,
         error: error.message || '重新生成失败',
@@ -847,6 +848,9 @@ class StoryEngine {
       };
     } catch (error) {
       console.error('保存编辑失败:', error);
+      // P0 修复：状态回滚——editing 是中间态，失败后必须回到 draft_ready，
+      // 否则段落永久卡死，regenerate/finalize/saveEdit 都无法处理 editing 状态。
+      try { await this.segmentRepo.updateStatus(segmentId, 'draft_ready'); } catch (_) { /* 忽略二次错误 */ }
       return {
         success: false,
         dayCompleted: 0,
@@ -881,7 +885,7 @@ class StoryEngine {
 
   // ===== 私有辅助方法 =====
 
-  async _getOrCreateStoryPlan({ segmentId, dayNumber, aiContext, parsed, mappingDesc, narrativeContext, entityMemory, foreshadowing, chapterPurpose, encounter, reuseExisting = false }) {
+  async _getOrCreateStoryPlan({ segmentId, dayNumber, aiContext, parsed, mappingDesc, narrativeContext, entityMemory, foreshadowing, chapterPurpose, encounter, reuseExisting = false, heroName = '主角' }) {
     if (reuseExisting) {
       const existing = await this.storyPlanRepo.getLatestForSegment(segmentId)
       if (existing?.plan) return existing
@@ -911,6 +915,7 @@ class StoryEngine {
       foreshadowing,
       chapterPurpose,
       encounter,
+      heroName: heroName || '主角',
     }, aiContext)
     return this.storyPlanRepo.upsert({
       dayNumber,
@@ -928,6 +933,7 @@ class StoryEngine {
     const dayCompleted = segment.day_number
     let user = null
     try { user = await this.userRepo.get() } catch (_) { /* keep fallback */ }
+    let memoError = null
     try {
       let aiContext = null
       if (user?.ai_provider && (USE_SERVERLESS_AI || user?.api_key_encrypted)) {
@@ -945,11 +951,48 @@ class StoryEngine {
       await this.memoExtractor.extract(content, dayCompleted, chapterNumber, aiContext, {
         segmentId: segment.id,
         choiceContext,
+        heroName: user?.hero_name,
       })
     } catch (error) {
-      // 记忆提取有自身 fallback；这里最后兜底，不能丢弃用户已确认的正文。
+      // 记忆提取有自身 fallback；这里记录错误，稍后确保交接单存在。
+      memoError = error
       console.warn('[StoryEngine] 定稿记忆刷新失败:', error.message)
     }
+
+    // P0 修复：交接单是跨日连续性的基石。即使记忆提取完全失败，
+    // 也必须写入一个最小保底交接单（从正文结尾提取关键信息），
+    // 否则第 N+1 天会读到 N-1 天前的旧交接单，导致故事断裂。
+    if (memoError) {
+      try {
+        const existing = await this.handoffRepo.getByDay(dayCompleted)
+        if (!existing) {
+          const ending = (content || '').slice(-1600).trim()
+          await this.handoffRepo.upsert({
+            dayNumber: dayCompleted,
+            segmentId: segment.id,
+            endingScene: { time: '本日结尾', location: '以正文结尾场景为准', presentCharacters: [], physicalState: ending },
+            characterStates: [],
+            hardFacts: ['不得无解释地改变本日结尾的场景、人物状态、物品和当前目标'],
+            activeGoal: '承接正文结尾并推进当前线索',
+            unfinishedAction: ending || '承接本日结尾状态',
+            immediateNextAction: '从本日结尾形成的状态继续行动',
+            unresolvedThreads: [],
+            prohibitedChanges: ['不得无解释地改变本日结尾的场景、人物状态、物品和当前目标'],
+            source: 'emergency_fallback',
+            qualityStatus: 'fallback',
+            qualityIssues: [`记忆提取失败: ${memoError.message}`],
+            factRecords: [],
+            fallbackReason: 'memo_extractor_failure',
+          })
+          console.warn('[StoryEngine] 已写入保底交接单（emergency_fallback）')
+        }
+      } catch (fallbackError) {
+        // 保底交接单也失败——数据库可能已损坏，向上抛出以阻止天数递增
+        console.error('[StoryEngine] 保底交接单写入失败，阻止天数递增:', fallbackError.message)
+        throw new Error(`交接单写入失败，无法保证跨日连续性: ${fallbackError.message}`)
+      }
+    }
+
     try {
       if (user) await this.narrativeGraph.completeNodesForDay(dayCompleted, user)
     } catch (error) {

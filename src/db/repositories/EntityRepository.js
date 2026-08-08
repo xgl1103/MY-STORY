@@ -28,10 +28,12 @@ export const EntityRepository = {
          WHERE id = ?`,
         [
           data.description || existing.description,
-          data.status || 'active',
-          data.last_day || existing.last_day,
-          data.relations || existing.relations,
-          data.notes || existing.notes,
+          // P0 修复：未传 status 时保留原值，不默认回退为 'active'
+          // 否则 _persistRelationships 只传 relations 时会把 lost/resolved 实体复活为 active
+          data.status !== undefined ? data.status : existing.status,
+          data.last_day !== undefined ? data.last_day : existing.last_day,
+          data.relations !== undefined ? data.relations : existing.relations,
+          data.notes !== undefined ? data.notes : existing.notes,
           existing.id
         ]
       )

@@ -2,14 +2,30 @@
 // AES-GCM 加密工具，使用 Web Crypto API（功能规划 10.3 节）
 // 用于加密用户的 API Key
 
-// 加密密钥的派生盐值和密钥材料
-// 使用固定密钥简化实现（本地存储场景，主要防止明文泄露）
-const SALT = 'mystory_salt_v1'
+// P0 修复：设备随机盐替代硬编码盐
+// 首次使用时生成 32 字节随机盐存入 localStorage，后续读取复用。
+// 这样即使源码公开，攻击者也无法远程解密——必须同时获取目标设备的 localStorage。
+// 当前项目运行在 serverless 模式（API Key 在 Vercel 环境变量），此修复保护非 serverless 模式。
 const KEY_MATERIAL = 'mystory_key_v1'
+const DEVICE_SALT_KEY = 'mystory_device_salt'
 
 let cryptoKey = null
 
-// 从密钥材料派生 AES-GCM 密钥
+// 获取或生成设备随机盐
+function getDeviceSalt() {
+  let saltB64 = null
+  try { saltB64 = localStorage.getItem(DEVICE_SALT_KEY) } catch (_) { /* SSR or restricted */ }
+  if (!saltB64) {
+    // 首次使用：生成 32 字节随机盐
+    const arr = new Uint8Array(32)
+    crypto.getRandomValues(arr)
+    saltB64 = uint8ArrayToBase64(arr)
+    try { localStorage.setItem(DEVICE_SALT_KEY, saltB64) } catch (_) { /* ignore */ }
+  }
+  return base64ToUint8Array(saltB64)
+}
+
+// 从密钥材料 + 设备盐派生 AES-GCM 密钥
 async function getKey() {
   if (cryptoKey) return cryptoKey
 
@@ -25,7 +41,7 @@ async function getKey() {
   cryptoKey = await crypto.subtle.deriveKey(
     {
       name: 'PBKDF2',
-      salt: encoder.encode(SALT),
+      salt: getDeviceSalt(),
       iterations: 100000,
       hash: 'SHA-256'
     },

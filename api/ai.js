@@ -5,6 +5,8 @@ const RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000;
 // A normal story day can use 6–7 guarded AI calls.  Keep abuse protection while
 // allowing an evaluator to complete several daily flows in one sitting.
 const RATE_LIMIT_MAX_REQUESTS = 30;
+// P0 修复：非浏览器请求（无 Origin 头）施加更严格的限流，防止脚本滥用
+const RATE_LIMIT_MAX_REQUESTS_NON_BROWSER = 5;
 const requestBuckets = new Map();
 
 function getClientIp(req) {
@@ -13,14 +15,30 @@ function getClientIp(req) {
   return req.socket?.remoteAddress || 'unknown';
 }
 
-function allowRequest(clientIp) {
+/**
+ * P0 修复：同源校验
+ * 浏览器前端以相对路径 /api/ai 调用，Origin 必然等于部署域名。
+ * 跨域请求（攻击者从其他网站发起）应被拒绝。
+ * 非浏览器请求（curl 等）无 Origin 头，放行但施加更严格限流。
+ */
+function isSameOrigin(req) {
+  const origin = req.headers?.origin;
+  if (!origin) return null; // 非浏览器请求
+  const host = req.headers?.host;
+  if (!host) return false;
+  // 允许 https://[host] 和 http://[host]（本地开发）
+  return origin === `https://${host}` || origin === `http://${host}`;
+}
+
+function allowRequest(clientIp, isBrowser) {
   const now = Date.now();
   const current = requestBuckets.get(clientIp);
+  const maxRequests = isBrowser ? RATE_LIMIT_MAX_REQUESTS : RATE_LIMIT_MAX_REQUESTS_NON_BROWSER;
   if (!current || now - current.startedAt >= RATE_LIMIT_WINDOW_MS) {
     requestBuckets.set(clientIp, { startedAt: now, count: 1 });
     return true;
   }
-  if (current.count >= RATE_LIMIT_MAX_REQUESTS) return false;
+  if (current.count >= maxRequests) return false;
   current.count += 1;
   return true;
 }
@@ -58,7 +76,13 @@ export default async function handler(req, res) {
   if (!systemPrompt || !userPrompt || systemPrompt.length + userPrompt.length > MAX_REQUEST_CHARS) {
     return json(res, 400, { error: '提示词内容无效或过长' });
   }
-  if (!allowRequest(getClientIp(req))) {
+  // P0 修复：同源校验——拒绝跨域请求
+  const sameOrigin = isSameOrigin(req);
+  if (sameOrigin === false) {
+    return json(res, 403, { error: '跨域请求已被拒绝' });
+  }
+  const isBrowser = sameOrigin === true;
+  if (!allowRequest(getClientIp(req), isBrowser)) {
     return json(res, 429, { error: '请求过于频繁，请稍后再试' });
   }
 
