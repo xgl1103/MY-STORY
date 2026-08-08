@@ -1122,10 +1122,22 @@ class StoryEngine {
   }
 
   async _verifySemanticDiaryInfluence(content, context) {
+    // 将日记事件中的现代用语替换为世界观表达，使审计对比的是"转换后的事件"而非原始现代术语。
+    // 否则审计员会因正文不含"React""电脑"等词而误判未体现，但这些词本就不应出现在正文中。
+    const modernGuide = ContentQualityGate.getModernTermGuide()
+    const transformedEvents = (context.dailyEvents || []).map(event =>
+      this._transformModernTerms(String(event))
+    )
+
     const prompt = `你是严格的日记影响审计员。判断下列小说正文是否把当天日记的核心事件实质转化为剧情中的场景、行动、关系变化或后果。允许文学化改写和同义表达；仅仅提到模糊概念不算。
 
-【当天日记事件】
-${(context.dailyEvents || []).map((item, index) => `${index + 1}. ${item}`).join('\n') || '无'}
+【重要说明】
+用户日记是现实世界的记录，包含现代概念（如电脑、上班、代码等）。小说正文已经将这些现代概念转换为诡秘之主世界观内的表达。审计时应判断事件的**核心含义和因果影响**是否被体现，而非要求现代术语原样出现。
+例如：日记事件"用电脑写代码"对应正文中的"在算力装置上编写符文"——这算已体现。
+现代用语→世界观替换参考：${modernGuide}
+
+【当天日记事件（已转换现代用语）】
+${transformedEvents.map((item, index) => `${index + 1}. ${item}`).join('\n') || '无'}
 
 【用户明确标注的实体】
 ${(context.coverageKeywords || []).join('、') || '无'}
@@ -1155,6 +1167,24 @@ ${content}
       // 审计不可用时保持保守策略，继续原有的修复流程。
       return { passed: false, evidence: '' };
     }
+  }
+
+  /**
+   * 将文本中的现代用语替换为世界观表达。
+   * 用于日记事件预处理，使因果审计对比的是转换后的事件。
+   * @private
+   */
+  _transformModernTerms(text) {
+    let result = text
+    // 按词长降序替换，避免短词先匹配导致长词被破坏（如"电脑"先于"电话"）
+    const terms = ContentQualityGate._getModernTermsSorted()
+    for (const term of terms) {
+      if (result.includes(term)) {
+        const replacement = ContentQualityGate._getReplacement(term)
+        result = result.split(term).join(replacement)
+      }
+    }
+    return result
   }
 
   /**

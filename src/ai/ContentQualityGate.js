@@ -166,6 +166,21 @@ export class ContentQualityGate {
       .filter(term => text.includes(term))
       .map(term => `${term}→${MODERN_TERM_REPLACEMENTS[term] || '世界观内恰当表达'}`)
   }
+
+  /**
+   * 返回按词长降序排列的现代用语列表。
+   * 用于文本替换时避免短词先匹配破坏长词（如"公交"先于"公交车"）。
+   */
+  static _getModernTermsSorted() {
+    return [...MODERN_TERMS].sort((a, b) => b.length - a.length)
+  }
+
+  /**
+   * 返回某个现代用语的世界观替换建议。
+   */
+  static _getReplacement(term) {
+    return MODERN_TERM_REPLACEMENTS[term] || '世界观内恰当表达'
+  }
 }
 
 export default ContentQualityGate
