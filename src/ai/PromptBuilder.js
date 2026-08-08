@@ -10,6 +10,7 @@
 // DiaryParser 复用，保证全链路 Prompt 文本唯一来源。
 
 import TokenCounter from '../utils/TokenCounter.js';
+import ContentQualityGate from './ContentQualityGate.js';
 
 // ========== 辅助 Prompt 常量（导出供其他组件复用）==========
 
@@ -128,6 +129,8 @@ const CONTENT_REPAIR_PROMPT = `你是连载小说的终稿编辑。请对以下�
 【检测到的问题】
 {quality_reasons}
 
+{modern_replacement_guide}
+
 【当日日记必须覆盖的事件】
 {daily_events}
 
@@ -140,6 +143,7 @@ const CONTENT_REPAIR_PROMPT = `你是连载小说的终稿编辑。请对以下�
 3. 必须以完整的中文句号、问号、感叹号或省略号结束，不能在半句截断。
 4. 不得删掉当日日记的核心事件；将其自然映射进剧情，而不是机械罗列。
 5. 保持已有角色、时间线和世界观一致，不新增与原文无关的主线。
+6. 不得在正文中出现任何现代用语（如电脑、手机、电梯、上班等），必须替换为诡秘之主世界观内的表达。
 
 【待修复正文】
 {content}`;
@@ -203,6 +207,7 @@ class PromptBuilder {
 - 保持连载小说的节奏感，每段结尾留下适当的悬念和期待感。
 - 对话使用中文引号「」，环境描写注重氛围营造。
 - 避免使用现代网络用语，保持时代感。
+- 【重要】用户日记中会出现现代概念（如电脑、电梯、上班、代码等），你必须将其转化为诡秘之主世界观内的表达。常见替换：电脑→计算器/算力装置，电梯→升降梯，上班→当值/履职，下班→收工/散值，加班→延时当值，开会→聚议，汇报→禀报，代码→符文/咒文，程序→仪式流程，手机→便携通讯器，显示器→观察水晶，键盘→操作面板，地铁→地下铁道，公交→公共马车，打卡→签到，入职→就任。不得在正文中原样保留任何现代用语。
 
 【输出格式】
 - 直接输出小说正文，不要输出任何解释、元信息或注释。
@@ -392,7 +397,16 @@ class PromptBuilder {
     template2 = PromptBuilder._safeReplace(template2, '{branch_guidance}', params.branchGuidance || '（自由发展）');
     template2 = PromptBuilder._safeReplace(template2, '{chapter_transition_hint}', transitionHint);
 
-    return template1 + '\n\n' + template2;
+    // 注入日记特定的现代用语转换提示
+    let modernHint = ''
+    if (params.rawText) {
+      const hints = ContentQualityGate.getDiaryModernHints(params.rawText)
+      if (hints.length > 0) {
+        modernHint = `\n\n【今日日记现代用语转换提醒】\n以下现代用语出现在用户日记中，正文中必须替换为世界观内表达：\n${hints.join('，')}`
+      }
+    }
+
+    return template1 + '\n\n' + template2 + modernHint;
   }
 
   // ===== User Prompt = 模板3..8 =====
@@ -611,9 +625,15 @@ class PromptBuilder {
   static buildContentRepairPrompt({ action, assessment, dailyEvents, coverageKeywords, content }) {
     const eventLines = (dailyEvents || []).map((item, index) => `${index + 1}. ${item}`).join('\n') || '1. 保留当日日记的核心事件。'
     const reasons = assessment?.reasons?.join('；') || '未通过内容质量验收'
+    // 构建现代用语替换指南
+    const modernHints = assessment?.modernReplacementHints
+    const modernGuide = modernHints && modernHints.length > 0
+      ? `【现代用语替换指南】\n以下是检测到的现代用语及其世界观替换建议，修复时必须全部替换：\n${modernHints.join('，')}`
+      : ''
     let prompt = CONTENT_REPAIR_PROMPT
     prompt = PromptBuilder._safeReplace(prompt, '{repair_action}', action)
     prompt = PromptBuilder._safeReplace(prompt, '{quality_reasons}', reasons)
+    prompt = PromptBuilder._safeReplace(prompt, '{modern_replacement_guide}', modernGuide)
     prompt = PromptBuilder._safeReplace(prompt, '{daily_events}', eventLines)
     prompt = PromptBuilder._safeReplace(prompt, '{coverage_keywords}', (coverageKeywords || []).join('、') || '无')
     return PromptBuilder._safeReplace(prompt, '{content}', content)

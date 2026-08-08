@@ -1273,6 +1273,10 @@ ${content}
   }
 
   _getQualityRepairAction(assessment) {
+    // 现代用语修复优先级最高：必须先消除现代用语，再做其他修复
+    if (assessment.modernTermHits && assessment.modernTermHits.length > 0) {
+      return `现代用语替换：将正文中的所有现代用语替换为诡秘之主世界观内的表达，保持剧情和语义不变。`;
+    }
     if (assessment.charCount < ContentQualityGate.limits.minChars || !assessment.hasCompleteEnding) {
       return '续写并补足：在不改变已有剧情的前提下补齐必要场景、行动和收束句，形成完整段落。';
     }
