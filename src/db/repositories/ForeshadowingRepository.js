@@ -97,10 +97,55 @@ export const ForeshadowingRepository = {
     return planted
   },
 
+  // 自动清理长期未回收的伏笔（标记为 abandoned）
+  // 高优先级伏笔不自动清理，必须由剧情显式回收
+  // 同步方法：execute() 直接修改内存数据库，markWrite() fire-and-forget 持久化
+  autoCleanup(currentDay) {
+    if (!currentDay || currentDay < 1) return 0
+    // 低优先级：超过 20 天未回收 → abandoned
+    // 普通优先级：超过 30 天未回收 → abandoned
+    // 高优先级：不自动清理
+    execute(
+      `UPDATE foreshadowing SET status = 'abandoned' 
+       WHERE status = 'unresolved' AND priority = 'low' 
+       AND planted_day < ?`,
+      [currentDay - 20]
+    )
+    execute(
+      `UPDATE foreshadowing SET status = 'abandoned' 
+       WHERE status = 'unresolved' AND priority = 'normal' 
+       AND planted_day < ?`,
+      [currentDay - 30]
+    )
+    // fire-and-forget：不阻塞 formatForPrompt 的同步流程
+    markWrite().catch(() => {})
+    return 0
+  },
+
+  // 获取已废弃的伏笔（供统计或恢复参考）
+  getAbandoned() {
+    return queryAll(
+      'SELECT * FROM foreshadowing WHERE status = ? ORDER BY planted_day DESC',
+      ['abandoned']
+    )
+  },
+
   // 格式化为 Prompt 文本
   formatForPrompt(currentDay) {
+    // 每次构建 Prompt 前自动清理过期伏笔
+    if (currentDay && currentDay >= 1) {
+      try { this.autoCleanup(currentDay) } catch (_) { /* ignore */ }
+    }
+
     const unresolved = this.getUnresolved()
-    if (unresolved.length === 0) return ''
+    if (unresolved.length === 0) {
+      // 检查是否有已废弃伏笔，简略提及以备恢复
+      const abandoned = this.getAbandoned()
+      if (abandoned.length > 0) {
+        return `【伏笔池】当前无活跃伏笔。另有 ${abandoned.length} 条已废弃伏笔（可在后续剧情中酌情恢复）。\n`
+      }
+      return ''
+    }
 
     const high = unresolved.filter(f => f.priority === 'high')
     const normal = unresolved.filter(f => f.priority === 'normal')

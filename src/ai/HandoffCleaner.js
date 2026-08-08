@@ -5,7 +5,7 @@
 const NON_ACTION = /^(?:待定|暂无|无|未知|继续推进|推进剧情|保持现状|等待后续|继续调查|继续追查|查明真相|了解更多|了解情况|确认情况|to be determined|tbd|unknown|continue the story|advance the plot|wait for more|investigate further|find out more)$/i
 const LEADING_FRAGMENT = /^(?:[，。；：、\s"'“”‘’…—-]+|(?:的|了|着|和|但|而且|所以|于是|声|后|前|中|里)[，。；：、\s]*)+/u
 // 残句的强信号是“孤立标点”或“连接词收尾”。中文里以“了/着/的”结尾的句子
-// 通常是完整句（“他打开了门”“他站着”“这是林墨买到的”），不能当作截断，
+// 通常是完整句（“他打开了门”“他站着”“这是主角买到的”），不能当作截断，
 // 否则 AI 正常输出的交接动作会被错误降级为 fallback；真正不完整的输出由
 // Planner 的 P101 校验与场景合同审查继续兜底。
 const TRAILING_FRAGMENT = /(?:[，、；：\-—…]|和|但|而且|所以|于是|因为|然后|接着|以及|或者|却|并)$/u
@@ -14,7 +14,7 @@ const string = value => String(value || '').replace(/\s+/g, ' ').trim()
 const unique = values => [...new Set(values.filter(Boolean))]
 
 export class HandoffCleaner {
-  clean(rawHandoff, { content = '', unresolvedThreads = [], choiceContext = null } = {}) {
+  clean(rawHandoff, { content = '', unresolvedThreads = [], choiceContext = null, heroName = '主角' } = {}) {
     const raw = rawHandoff && typeof rawHandoff === 'object' ? rawHandoff : {}
     const issues = []
     let wasCleaned = false
@@ -34,7 +34,7 @@ export class HandoffCleaner {
       return result
     }
 
-    const fallback = this._fallback(content, unresolvedThreads, choiceContext)
+    const fallback = this._fallback(content, unresolvedThreads, choiceContext, heroName)
     const endingScene = this._cleanEndingScene(raw.endingScene, fallback.endingScene)
     const hardFacts = this._cleanTextArray(raw.hardFacts, 'hardFacts', issues)
     const prohibitedChanges = this._cleanTextArray(raw.prohibitedChanges, 'prohibitedChanges', issues)
@@ -74,7 +74,7 @@ export class HandoffCleaner {
     // Models may phrase a concrete action with verbs outside a fixed Chinese
     // dictionary. Reject known placeholders, then let the downstream scene
     // contract verifier validate whether the action is actually executed.
-    // 长度门槛必须足够低：中文 5~7 字的短动作（“林墨打开铁门”“核对纹章图案”）
+    // 长度门槛必须足够低：中文 5~7 字的短动作（“主角打开铁门”“核对纹章图案”）
     // 完全具体可执行，门槛过高会把合法交接单误判为 fallback。
     return string(value).length >= 5 && !NON_ACTION.test(string(value))
   }
@@ -136,8 +136,8 @@ export class HandoffCleaner {
     return hardFacts.map(value => ({ subject: '故事事实', attribute: '不可无解释改变', value, confidence: 'confirmed', sourceDay: null }))
   }
 
-  _fallback(content, unresolvedThreads, choiceContext) {
-    const ending = this._lastCompleteSentence(content) || '林墨必须承接本日结尾，继续推进当前线索。'
+  _fallback(content, unresolvedThreads, choiceContext, heroName = '主角') {
+    const ending = this._lastCompleteSentence(content) || `${heroName}必须承接本日结尾，继续推进当前非凡线索。`
     const threads = (Array.isArray(unresolvedThreads) ? unresolvedThreads : []).slice(0, 6).map(item => ({
       description: string(item?.description), priority: ['high', 'normal', 'low'].includes(item?.priority) ? item.priority : 'normal',
     })).filter(item => item.description)

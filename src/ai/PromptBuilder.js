@@ -470,6 +470,7 @@ class PromptBuilder {
     const categoryNames = {
       path: '途径', power_system: '力量体系', location: '地点',
       character: '人物', lore: '背景知识', item: '物品',
+      roleplay: '扮演机制', daily_life: '日常设定', faction: '势力格局',
     };
     const lines = Object.entries(grouped).map(([cat, values]) => {
       return `【${categoryNames[cat] || cat}】${values.join('\n')}`;

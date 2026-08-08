@@ -24,10 +24,19 @@ class MappingEngine {
     const behaviorList = Array.isArray(behaviors) ? behaviors : [];
 
     for (const behavior of behaviorList) {
-      // 精确匹配行为大类
+      // 1. 精确匹配行为大类
       let rule = rules.find(r => r.behavior === behavior);
 
-      // 无匹配 → 使用"其他"分类的默认映射
+      // 2. 模糊匹配：使用 keywords 字段做包含检测
+      if (!rule) {
+        rule = rules.find(r => {
+          const kws = Array.isArray(r.keywords) ? r.keywords : []
+          // 行为字符串包含某个关键词，或关键词包含行为字符串
+          return kws.some(kw => behavior.includes(kw) || kw.includes(behavior))
+        });
+      }
+
+      // 3. 无匹配 → 使用"其他"分类的默认映射
       if (!rule) {
         rule = rules.find(r => r.behavior === '其他');
       }

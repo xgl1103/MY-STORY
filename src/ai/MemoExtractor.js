@@ -14,7 +14,13 @@ import { ForeshadowingRepository } from '../db/repositories/ForeshadowingReposit
 import { DayHandoffRepository } from '../db/repositories/DayHandoffRepository.js'
 import HandoffCleaner from './HandoffCleaner.js'
 
-const SYSTEM_PROMPT = `你是一个故事分析助手。请从给定的故事段落中提取以下信息，以 JSON 格式输出：
+const SYSTEM_PROMPT = `你是《诡秘之主》世界观的故事分析助手。请从给定的故事段落中提取以下信息，以 JSON 格式输出：
+
+[世界观基础设定]
+- 这是维多利亚时代风格的架空世界，存在非凡者和非凡特性。
+- 世界共有 22 条神之途径，每条途径有 10 个等级（序列 9 到序列 0）。
+- 主角是占卜家途径序列 9 的非凡者。
+- 塔罗会是一个秘密的非凡者组织，成员以塔罗牌代号相称。
 
 1. entities：本段出现的角色、物品、地点。每个实体包含：
    - type: "character" | "item" | "location"
@@ -22,15 +28,20 @@ const SYSTEM_PROMPT = `你是一个故事分析助手。请从给定的故事段
    - description: 一句话描述当前状态（外貌/能力/用途/关系），不要只写"出现了"
    - status: "active"（活跃角色/重要物品/常驻地点）| "mentioned"（仅提及）
 
-2. foreshadowing_planted：本段埋设的伏笔（暗示、悬念、未解释的异常）。每个包含：
+2. relationships：本段中体现的角色关系。每个包含：
+   - entity: 角色名称（必须与 entities 中的 name 对应）
+   - target: 关系对象名称
+   - relation: 关系类型（如"师徒"、"盟友"、"敌人"、"亲属"、"雇主"、"欠人情"等）
+
+3. foreshadowing_planted：本段埋设的伏笔（暗示、悬念、未解释的异常）。每个包含：
    - description: 伏笔内容（10-30字，具体描述）
    - priority: "high"（关键悬念/重要线索）| "normal"（普通暗示）| "low"（细微异常）
 
-3. foreshadowing_resolved：本段是否回收了某个之前埋设的伏笔。每个包含：
+4. foreshadowing_resolved：本段是否回收了某个之前埋设的伏笔。每个包含：
    - description: 被回收的伏笔内容（尽量与埋设时的描述匹配）
    - resolution: 回收方式简述
 
-4. day_handoff：给下一天 Writer 的交接单，必须基于本段结尾，而非整段泛泛摘要：
+5. day_handoff：给下一天 Writer 的交接单，必须基于本段结尾，而非整段泛泛摘要：
    - endingScene: { time, location, presentCharacters, physicalState }
    - characterStates: [{ name, emotion, possessions, relationshipChanges }]
    - hardFacts: 不得无解释改变的具体事实数组
@@ -113,12 +124,14 @@ export class MemoExtractor {
 
     // 写入数据库
     await this._persistEntities(parsed.entities || [], storyDay)
+    await this._persistRelationships(parsed.relationships || [], storyDay)
     await this._persistForeshadowingPlanted(parsed.foreshadowing_planted || [], storyDay, chapterNumber)
     await this._persistForeshadowingResolved(parsed.foreshadowing_resolved || [], unresolvedList, storyDay, chapterNumber)
     const handoff = await this._persistHandoff(parsed.day_handoff, content, storyDay, handoffContext, unresolvedList, 'ai')
 
     return {
       entities: parsed.entities || [],
+      relationships: parsed.relationships || [],
       planted: parsed.foreshadowing_planted || [],
       resolved: parsed.foreshadowing_resolved || [],
       handoff,
@@ -162,6 +175,35 @@ export class MemoExtractor {
         status: e.status || 'mentioned',
         first_day: storyDay,
         last_day: storyDay
+      })
+    }
+  }
+
+  // 写入角色关系（合并到 entity_state.relations 字段）
+  async _persistRelationships(relationships, storyDay) {
+    for (const r of relationships) {
+      if (!r.entity || !r.target || !r.relation) continue
+
+      // 跨类型查找实体（角色优先，其次物品、地点）
+      let entity = null
+      for (const type of ['character', 'item', 'location']) {
+        entity = this.entityRepo.getByName(type, r.entity)
+        if (entity) break
+      }
+      if (!entity) continue
+
+      // 合并已有关系，避免覆盖之前提取的关系
+      let existingRelations = {}
+      try {
+        existingRelations = entity.relations ? JSON.parse(entity.relations) : {}
+      } catch (_) { /* ignore parse errors */ }
+      existingRelations[r.target] = r.relation
+
+      await this.entityRepo.upsert({
+        entity_type: entity.entity_type,
+        entity_name: entity.entity_name,
+        relations: JSON.stringify(existingRelations),
+        last_day: storyDay,
       })
     }
   }
@@ -267,6 +309,7 @@ export class MemoExtractor {
       content,
       unresolvedThreads: unresolvedList,
       choiceContext: context.choiceContext || null,
+      heroName: context.heroName || '主角',
     })
   }
 
